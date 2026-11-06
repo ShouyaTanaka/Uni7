@@ -1,0 +1,12 @@
+{
+    "name": "Uni7.Runtime",
+    "rootNamespace": "",
+    "references": [
+        "UniTask",
+        "UniRx"
+    ],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": true,
+    "noEngineReferences": false
+}
