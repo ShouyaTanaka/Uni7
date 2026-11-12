@@ -33,7 +33,7 @@ namespace Uni7.Diagnostics
         private Texture2D errorIcon;
         private const float SplitterWidth = 5f;
 
-        [MenuItem("Tools/Uni7/Diagnostics Console")]
+        [MenuItem("Tools/Uni7/Diagnostics/Console")]
         public static void ShowWindow()
         {
             UTConsoleWindow window = GetWindow<UTConsoleWindow>("Uni7 Console");

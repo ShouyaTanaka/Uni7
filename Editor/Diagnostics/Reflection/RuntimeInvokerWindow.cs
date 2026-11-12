@@ -27,7 +27,7 @@ namespace Uni7.Diagnostics
         private Label _status;
         private bool _showFavoritesOnly;
 
-        [MenuItem("Tools/Uni7/Runtime Invoker")]
+        [MenuItem("Tools/Uni7/Diagnostics/Runtime Invoker")]
         public static void Open()
         {
             var window = GetWindow<RuntimeInvokerWindow>();

@@ -2,43 +2,47 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-[CreateAssetMenu(
-    fileName = "EventDefinitionDatabase",
-    menuName = "Uni7/Event Definition Database")]
-public class EventDefinitionDatabase : ScriptableObject
+namespace Uni7.Events
 {
-    [SerializeField]
-    public List<EventCategoryDefinition> categories = new();
-}
 
-[Serializable]
-public class EventCategoryDefinition
-{
-    public string categoryName;
-    public List<EventDefinition> events = new();
-}
+    [CreateAssetMenu(
+        fileName = "EventDefinitionDatabase",
+        menuName = "Uni7/Event Definition Database")]
+    public class EventDefinitionDatabase : ScriptableObject
+    {
+        [SerializeField]
+        public List<EventCategoryDefinition> categories = new();
+    }
 
-[Serializable]
-public class EventDefinition
-{
-    public string eventName;
+    [Serializable]
+    public class EventCategoryDefinition
+    {
+        public string categoryName;
+        public List<EventDefinition> events = new();
+    }
 
-    // Event description shown in the editor and generated as XML documentation.
-    [TextArea(2, 5)]
-    public string comment;
+    [Serializable]
+    public class EventDefinition
+    {
+        public string eventName;
 
-    // Supported values are defined by the editor.
-    public EventParameterType parameterType;
-}
+        // Event description shown in the editor and generated as XML documentation.
+        [TextArea(2, 5)]
+        public string comment;
 
-public enum EventParameterType
-{
-    None,
-    Int,
-    Float,
-    String,
-    Bool,
-    Vector2,
-    Vector3,
-    GameObject
+        // Supported values are defined by the editor.
+        public EventParameterType parameterType;
+    }
+
+    public enum EventParameterType
+    {
+        None,
+        Int,
+        Float,
+        String,
+        Bool,
+        Vector2,
+        Vector3,
+        GameObject
+    }
 }
