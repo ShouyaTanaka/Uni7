@@ -3,7 +3,9 @@
     "rootNamespace": "",
     "references": [
         "UniTask",
-        "UniRx"
+        "UniRx",
+        "Unity.Addressables",
+        "Unity.ResourceManager"
     ],
     "allowUnsafeCode": false,
     "overrideReferences": false,

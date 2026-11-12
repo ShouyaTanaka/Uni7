@@ -433,6 +433,10 @@ namespace Uni7.Events
             EnsureFolder(GeneratedFolder);
             EnsureFolder(GeneratedCategoriesFolder);
 
+            EnsureUICategoryDefinitions();
+            EditorUtility.SetDirty(database);
+            AssetDatabase.SaveAssets();
+
             // Delete old generated category files.
             string[] oldFiles = AssetDatabase.FindAssets("t:MonoScript", new[] { GeneratedCategoriesFolder });
 
@@ -461,6 +465,35 @@ namespace Uni7.Events
                 "OK");
         }
 
+
+        private void EnsureUICategoryDefinitions()
+        {
+            EventCategoryDefinition category = database.categories.FirstOrDefault(x => x.categoryName == "UI");
+            if (category == null)
+            {
+                category = new EventCategoryDefinition { categoryName = "UI" };
+                database.categories.Add(category);
+            }
+
+            AddDefaultUIEvent(category, "OpenWindow", EventParameterType.String, "WindowをUI IDで開きます。");
+            AddDefaultUIEvent(category, "OpenModal", EventParameterType.String, "ModalをUI IDで開きます。");
+            AddDefaultUIEvent(category, "CloseUI", EventParameterType.String, "指定したUI IDを閉じます。");
+            AddDefaultUIEvent(category, "CloseTopModal", EventParameterType.None, "最前面のModalを閉じます。");
+            AddDefaultUIEvent(category, "CloseAll", EventParameterType.None, "表示中のUIをすべて閉じます。");
+        }
+
+        private static void AddDefaultUIEvent(EventCategoryDefinition category, string name, EventParameterType type, string comment)
+        {
+            EventDefinition existing = category.events.FirstOrDefault(x => x.eventName == name);
+            if (existing != null)
+            {
+                existing.parameterType = type;
+                if (string.IsNullOrWhiteSpace(existing.comment)) existing.comment = comment;
+                return;
+            }
+            category.events.Add(new EventDefinition { eventName = name, parameterType = type, comment = comment });
+        }
+
         private void GenerateCategory(EventCategoryDefinition category)
         {
             string className = category.categoryName + "Events";
@@ -487,15 +520,46 @@ namespace Uni7.Events
                 sb.AppendLine($"    private readonly Subject<{type}> _{e.eventName} = new();");
             }
 
+            if (category.categoryName == "UI")
+            {
+                sb.AppendLine("    private readonly Action<string> _hubOpenWindow;");
+                sb.AppendLine("    private readonly Action<string> _hubOpenModal;");
+                sb.AppendLine("    private readonly Action<string> _hubCloseUI;");
+                sb.AppendLine("    private readonly Action _hubCloseTopModal;");
+                sb.AppendLine("    private readonly Action _hubCloseAll;");
+                sb.AppendLine();
+                sb.AppendLine("    public UIEvents()");
+                sb.AppendLine("    {");
+                sb.AppendLine("        _hubOpenWindow = value => _OpenWindow.OnNext(value);");
+                sb.AppendLine("        _hubOpenModal = value => _OpenModal.OnNext(value);");
+                sb.AppendLine("        _hubCloseUI = value => _CloseUI.OnNext(value);");
+                sb.AppendLine("        _hubCloseTopModal = () => _CloseTopModal.OnNext(Unit.Default);");
+                sb.AppendLine("        _hubCloseAll = () => _CloseAll.OnNext(Unit.Default);");
+                sb.AppendLine("        Uni7.UI.UIEventHub.OpenWindow += _hubOpenWindow;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.OpenModal += _hubOpenModal;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.CloseUI += _hubCloseUI;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.CloseTopModal += _hubCloseTopModal;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.CloseAll += _hubCloseAll;");
+                sb.AppendLine("    }");
+            }
+
             sb.AppendLine();
 
             foreach (EventDefinition e in category.events)
             {
-                GenerateEventMethods(sb, e);
+                GenerateEventMethods(sb, e, category.categoryName);
             }
 
             sb.AppendLine("    public void Dispose()");
             sb.AppendLine("    {");
+            if (category.categoryName == "UI")
+            {
+                sb.AppendLine("        Uni7.UI.UIEventHub.OpenWindow -= _hubOpenWindow;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.OpenModal -= _hubOpenModal;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.CloseUI -= _hubCloseUI;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.CloseTopModal -= _hubCloseTopModal;");
+                sb.AppendLine("        Uni7.UI.UIEventHub.CloseAll -= _hubCloseAll;");
+            }
 
             foreach (EventDefinition e in category.events)
             {
@@ -509,7 +573,7 @@ namespace Uni7.Events
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
         }
 
-        private void GenerateEventMethods(StringBuilder sb, EventDefinition e)
+        private void GenerateEventMethods(StringBuilder sb, EventDefinition e, string categoryName)
         {
             string type = GetParameterType(e.parameterType);
             bool noParameter = e.parameterType == EventParameterType.None;
@@ -534,7 +598,9 @@ namespace Uni7.Events
 
                 sb.AppendLine($"    public void Emit{e.eventName}()");
                 sb.AppendLine("    {");
-                sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
+                if (categoryName == "UI" && e.eventName == "CloseTopModal") sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseTopModal();");
+                else if (categoryName == "UI" && e.eventName == "CloseAll") sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseAll();");
+                else sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
                 sb.AppendLine("    }");
                 sb.AppendLine();
             }
@@ -554,7 +620,10 @@ namespace Uni7.Events
 
                 sb.AppendLine($"    public void Emit{e.eventName}({type} value)");
                 sb.AppendLine("    {");
-                sb.AppendLine($"        _{e.eventName}.OnNext(value);");
+                if (categoryName == "UI" && e.eventName == "OpenWindow") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenWindow(value);");
+                else if (categoryName == "UI" && e.eventName == "OpenModal") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenModal(value);");
+                else if (categoryName == "UI" && e.eventName == "CloseUI") sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseUI(value);");
+                else sb.AppendLine($"        _{e.eventName}.OnNext(value);");
                 sb.AppendLine("    }");
                 sb.AppendLine();
             }
@@ -576,6 +645,9 @@ namespace Uni7.Events
             sb.AppendLine("    private static EventManager _instance;");
             sb.AppendLine();
             sb.AppendLine("    public static EventManager Instance => _instance ??= new EventManager();");
+            sb.AppendLine();
+            sb.AppendLine("    [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]");
+            sb.AppendLine("    private static void InitializeOnPlay() => _ = Instance;");
             sb.AppendLine();
 
             foreach (EventCategoryDefinition category in database.categories)
