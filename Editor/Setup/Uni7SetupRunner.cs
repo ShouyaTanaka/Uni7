@@ -1,0 +1,170 @@
+#if UNITY_EDITOR
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEditor;
+using UnityEditor.PackageManager;
+using UnityEditor.PackageManager.Requests;
+using UnityEngine;
+
+namespace Uni7.Editor.Setup
+{
+    /// <summary>
+    /// Uni7を導入したUnityプロジェクトに、推奨フォルダと外部Packageをセットアップします。
+    /// 既存フォルダは削除・上書きしません。
+    /// </summary>
+    internal static class Uni7SetupRunner
+    {
+        private static readonly string[] RequiredFolders =
+        {
+            "Assets/Scripts",
+            "Assets/Resources",
+            "Assets/Resources/Images",
+            "Assets/Resources/Sounds",
+            "Assets/Resources/Sounds/BGM",
+            "Assets/Resources/Sounds/SE",
+            "Assets/Resources/Materials",
+            "Assets/Prefabs",
+        };
+
+        private static ListRequest listRequest;
+        private static AddRequest addRequest;
+        private static readonly Queue<PackageDefinition> installQueue =
+            new Queue<PackageDefinition>();
+
+        private static Action<string> onProgress;
+        private static Action<bool, string> onCompleted;
+        private static bool isRunning;
+
+        private readonly struct PackageDefinition
+        {
+            public readonly string Name;
+            public readonly string GitUrl;
+
+            public PackageDefinition(string name, string gitUrl)
+            {
+                Name = name;
+                GitUrl = gitUrl;
+            }
+        }
+
+        public static bool IsRunning => isRunning;
+
+        public static int CreateProjectFolders()
+        {
+            int createdCount = 0;
+
+            foreach (string folder in RequiredFolders)
+            {
+                if (AssetDatabase.IsValidFolder(folder))
+                    continue;
+
+                string absolutePath = Path.GetFullPath(folder);
+                Directory.CreateDirectory(absolutePath);
+                createdCount++;
+            }
+
+            AssetDatabase.Refresh();
+            return createdCount;
+        }
+
+        public static void InstallDependencies(
+            Action<string> progress,
+            Action<bool, string> completed)
+        {
+            if (isRunning)
+            {
+                completed?.Invoke(false, "Packageのセットアップは既に実行中です。");
+                return;
+            }
+
+            isRunning = true;
+            onProgress = progress;
+            onCompleted = completed;
+
+            installQueue.Clear();
+            installQueue.Enqueue(new PackageDefinition(
+                PackageInfoConst.UniTaskName, PackageInfoConst.UniTaskGit));
+            installQueue.Enqueue(new PackageDefinition(
+                PackageInfoConst.UniRxName, PackageInfoConst.UniRxGit));
+
+            onProgress?.Invoke("インストール済みPackageを確認しています...");
+            listRequest = Client.List(true, true);
+            EditorApplication.update += UpdatePackageInstallation;
+        }
+
+        private static void UpdatePackageInstallation()
+        {
+            if (listRequest != null)
+            {
+                if (!listRequest.IsCompleted)
+                    return;
+
+                if (listRequest.Status == StatusCode.Failure)
+                {
+                    Finish(false, "Package一覧の取得に失敗しました。\n" + listRequest.Error.message);
+                    return;
+                }
+
+                var installedNames = new HashSet<string>();
+                foreach (var package in listRequest.Result)
+                    installedNames.Add(package.name);
+
+                var pending = new Queue<PackageDefinition>();
+                while (installQueue.Count > 0)
+                {
+                    PackageDefinition package = installQueue.Dequeue();
+                    if (!installedNames.Contains(package.Name))
+                        pending.Enqueue(package);
+                }
+
+                installQueue.Clear();
+                while (pending.Count > 0)
+                    installQueue.Enqueue(pending.Dequeue());
+
+                listRequest = null;
+            }
+
+            if (addRequest != null)
+            {
+                if (!addRequest.IsCompleted)
+                    return;
+
+                if (addRequest.Status == StatusCode.Failure)
+                {
+                    Finish(false, "Packageの追加に失敗しました。\n" + addRequest.Error.message);
+                    return;
+                }
+
+                onProgress?.Invoke(addRequest.Result.displayName + " の導入が完了しました。");
+                addRequest = null;
+            }
+
+            if (installQueue.Count == 0)
+            {
+                Finish(true, "外部Packageの確認・導入が完了しました。");
+                return;
+            }
+
+            PackageDefinition next = installQueue.Dequeue();
+            onProgress?.Invoke(next.Name + " を導入しています...");
+            addRequest = Client.Add(next.GitUrl);
+        }
+
+        private static void Finish(bool success, string message)
+        {
+            EditorApplication.update -= UpdatePackageInstallation;
+            listRequest = null;
+            addRequest = null;
+            installQueue.Clear();
+            isRunning = false;
+
+            Action<bool, string> callback = onCompleted;
+            onProgress = null;
+            onCompleted = null;
+
+            callback?.Invoke(success, message);
+        }
+    }
+}
+#endif
