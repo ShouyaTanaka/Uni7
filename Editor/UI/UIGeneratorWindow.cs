@@ -21,6 +21,7 @@ namespace Uni7.Editor.UI
     public sealed class UIGeneratorWindow : EditorWindow
     {
         private const string RegistryPath = "Assets/Resources/Uni7/UIRegistry.asset";
+
         private const string ButtonRegistryPath = "Assets/Resources/Uni7/UIButtonRegistry.asset";
         private const string EventDatabasePath = "Assets/Scripts/GenerateEvents/EventDefinitionDatabase.asset";
         private const string DefaultPrefabRoot = "Assets/Uni7/UI/Prefabs";
@@ -153,24 +154,24 @@ namespace Uni7.Editor.UI
         {
             using (new EditorGUILayout.VerticalScope(GUI.skin.box))
             {
-            EditorGUILayout.LabelField("UIを追加", EditorStyles.boldLabel);
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                newUIId = EditorGUILayout.TextField("ID", newUIId);
-                newUIType = (UIType)EditorGUILayout.EnumPopup(newUIType, GUILayout.Width(105));
-                using (new EditorGUI.DisabledScope(!IsValidId(newUIId) || registry.EditorEntries.Any(x => x != null && x.id == newUIId)))
-                    if (GUILayout.Button("追加", GUILayout.Width(72), GUILayout.Height(22))) CreateAndRegisterUI();
-            }
-            showCreateOptions = EditorGUILayout.Foldout(showCreateOptions, "More Options", true);
-            if (showCreateOptions)
-            {
-                EditorGUI.indentLevel++;
-                defaultInitialPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Initial Pool", defaultInitialPoolSize));
-                defaultMaxPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Max Pool", defaultMaxPoolSize));
-                defaultAnimationDuration = Mathf.Max(0f, EditorGUILayout.FloatField("Animation Duration", defaultAnimationDuration));
-                defaultScaleAnimation = EditorGUILayout.Toggle("Scale Animation", defaultScaleAnimation);
-                EditorGUI.indentLevel--;
-            }
+                EditorGUILayout.LabelField("UIを追加", EditorStyles.boldLabel);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    newUIId = EditorGUILayout.TextField("ID", newUIId);
+                    newUIType = (UIType)EditorGUILayout.EnumPopup(newUIType, GUILayout.Width(105));
+                    using (new EditorGUI.DisabledScope(!IsValidId(newUIId) || registry.EditorEntries.Any(x => x != null && x.id == newUIId)))
+                        if (GUILayout.Button("追加", GUILayout.Width(72), GUILayout.Height(22))) CreateAndRegisterUI();
+                }
+                showCreateOptions = EditorGUILayout.Foldout(showCreateOptions, "More Options", true);
+                if (showCreateOptions)
+                {
+                    EditorGUI.indentLevel++;
+                    defaultInitialPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Initial Pool", defaultInitialPoolSize));
+                    defaultMaxPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Max Pool", defaultMaxPoolSize));
+                    defaultAnimationDuration = Mathf.Max(0f, EditorGUILayout.FloatField("Animation Duration", defaultAnimationDuration));
+                    defaultScaleAnimation = EditorGUILayout.Toggle("Scale Animation", defaultScaleAnimation);
+                    EditorGUI.indentLevel--;
+                }
             }
         }
 
@@ -195,63 +196,63 @@ namespace Uni7.Editor.UI
             PrefabHealth health = GetPrefabHealth(path, entry.prefabGuid, entry.prefabDependencyHash);
             using (new EditorGUILayout.VerticalScope(GUI.skin.box))
             {
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                DrawAssetPreview(path);
-                GUILayout.Label(entry.type == UIType.Window ? "W" : "M", EditorStyles.miniButton, GUILayout.Width(24));
-                EditorGUILayout.LabelField(entry.id, EditorStyles.boldLabel);
-                GUILayout.FlexibleSpace();
-                DrawHealthLabel(health);
-                if (GUILayout.Button("Select", GUILayout.Width(48))) SelectAsset(path);
-                if (GUILayout.Button("×", GUILayout.Width(24)) && EditorUtility.DisplayDialog("登録解除", $"'{entry.id}' のRegistry登録だけを解除します。Prefabは削除しません。", "解除", "キャンセル"))
-                {
-                    registry.EditorEntries.RemoveAt(index);
-                    Save(registry);
-                    GUIUtility.ExitGUI();
-                }
-            }
-
-            string foldoutKey = "Uni7.UI.More." + entry.id;
-            bool expanded = EditorPrefs.GetBool(foldoutKey, false);
-            bool next = EditorGUILayout.Foldout(expanded, "More Options", true);
-            if (next != expanded) EditorPrefs.SetBool(foldoutKey, next);
-            if (next)
-            {
-                EditorGUI.indentLevel++;
-                EditorGUI.BeginChangeCheck();
-                entry.address = EditorGUILayout.TextField("Addressables Address", entry.address);
-                entry.initialPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Initial Pool", entry.initialPoolSize));
-                entry.maxPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Max Pool", entry.maxPoolSize));
-                entry.animationDuration = Mathf.Max(0f, EditorGUILayout.FloatField("Animation Duration", entry.animationDuration));
-                entry.useScaleAnimation = EditorGUILayout.Toggle("Scale Animation", entry.useScaleAnimation);
-                GameObject currentPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                GameObject selectedPrefab = (GameObject)EditorGUILayout.ObjectField("Prefab Asset", currentPrefab, typeof(GameObject), false);
-                if (selectedPrefab != currentPrefab)
-                {
-                    string selectedPath = selectedPrefab != null ? AssetDatabase.GetAssetPath(selectedPrefab) : "";
-                    Type expectedType = entry.type == UIType.Window ? typeof(UIWindow) : typeof(UIModal);
-                    if (selectedPrefab != null && selectedPrefab.GetComponent(expectedType) == null)
-                        SetStatus($"選択Prefabに{expectedType.Name}がありません。", MessageType.Error);
-                    else
-                    {
-                        entry.prefabPath = selectedPath;
-                        entry.prefabGuid = selectedPrefab != null ? AssetDatabase.AssetPathToGUID(selectedPath) : "";
-                        entry.prefabDependencyHash = selectedPrefab != null ? AssetDatabase.GetAssetDependencyHash(selectedPath).ToString() : "";
-                    }
-                }
-                EditorGUILayout.LabelField("Prefab Path", GetPrefabPath(entry), EditorStyles.miniLabel);
-                if (EditorGUI.EndChangeCheck()) Save(registry);
-
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("不足Prefabを作成")) CreateMissingUIPrefab(entry);
-                    if (GUILayout.Button("Addressables確認")) EnsureAddressable(entry, true);
-                    if (GUILayout.Button("Addressを更新")) UpdateAddressableAddress(entry);
-                    if (health == PrefabHealth.Changed || health == PrefabHealth.Unknown)
-                        if (GUILayout.Button("現在のPrefabを基準にする")) RecordPrefabBaseline(entry, path);
+                    DrawAssetPreview(path);
+                    GUILayout.Label(entry.type == UIType.Window ? "W" : "M", EditorStyles.miniButton, GUILayout.Width(24));
+                    EditorGUILayout.LabelField(entry.id, EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    DrawHealthLabel(health);
+                    if (GUILayout.Button("Select", GUILayout.Width(48))) SelectAsset(path);
+                    if (GUILayout.Button("×", GUILayout.Width(24)) && EditorUtility.DisplayDialog("登録解除", $"'{entry.id}' のRegistry登録だけを解除します。Prefabは削除しません。", "解除", "キャンセル"))
+                    {
+                        registry.EditorEntries.RemoveAt(index);
+                        Save(registry);
+                        GUIUtility.ExitGUI();
+                    }
                 }
-                EditorGUI.indentLevel--;
-            }
+
+                string foldoutKey = "Uni7.UI.More." + entry.id;
+                bool expanded = EditorPrefs.GetBool(foldoutKey, false);
+                bool next = EditorGUILayout.Foldout(expanded, "More Options", true);
+                if (next != expanded) EditorPrefs.SetBool(foldoutKey, next);
+                if (next)
+                {
+                    EditorGUI.indentLevel++;
+                    EditorGUI.BeginChangeCheck();
+                    entry.address = EditorGUILayout.TextField("Addressables Address", entry.address);
+                    entry.initialPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Initial Pool", entry.initialPoolSize));
+                    entry.maxPoolSize = Mathf.Max(0, EditorGUILayout.IntField("Max Pool", entry.maxPoolSize));
+                    entry.animationDuration = Mathf.Max(0f, EditorGUILayout.FloatField("Animation Duration", entry.animationDuration));
+                    entry.useScaleAnimation = EditorGUILayout.Toggle("Scale Animation", entry.useScaleAnimation);
+                    GameObject currentPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    GameObject selectedPrefab = (GameObject)EditorGUILayout.ObjectField("Prefab Asset", currentPrefab, typeof(GameObject), false);
+                    if (selectedPrefab != currentPrefab)
+                    {
+                        string selectedPath = selectedPrefab != null ? AssetDatabase.GetAssetPath(selectedPrefab) : "";
+                        Type expectedType = entry.type == UIType.Window ? typeof(UIWindow) : typeof(UIModal);
+                        if (selectedPrefab != null && selectedPrefab.GetComponent(expectedType) == null)
+                            SetStatus($"選択Prefabに{expectedType.Name}がありません。", MessageType.Error);
+                        else
+                        {
+                            entry.prefabPath = selectedPath;
+                            entry.prefabGuid = selectedPrefab != null ? AssetDatabase.AssetPathToGUID(selectedPath) : "";
+                            entry.prefabDependencyHash = selectedPrefab != null ? AssetDatabase.GetAssetDependencyHash(selectedPath).ToString() : "";
+                        }
+                    }
+                    EditorGUILayout.LabelField("Prefab Path", GetPrefabPath(entry), EditorStyles.miniLabel);
+                    if (EditorGUI.EndChangeCheck()) Save(registry);
+
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        if (GUILayout.Button("不足Prefabを作成")) CreateMissingUIPrefab(entry);
+                        if (GUILayout.Button("Addressables確認")) EnsureAddressable(entry, true);
+                        if (GUILayout.Button("Addressを更新")) UpdateAddressableAddress(entry);
+                        if (health == PrefabHealth.Changed || health == PrefabHealth.Unknown)
+                            if (GUILayout.Button("現在のPrefabを基準にする")) RecordPrefabBaseline(entry, path);
+                    }
+                    EditorGUI.indentLevel--;
+                }
             }
         }
 
@@ -293,7 +294,9 @@ namespace Uni7.Editor.UI
 
             UIEntry entry = new UIEntry
             {
-                id = id, address = id, type = newUIType,
+                id = id,
+                address = id,
+                type = newUIType,
                 initialPoolSize = defaultInitialPoolSize,
                 maxPoolSize = defaultMaxPoolSize,
                 animationDuration = defaultAnimationDuration,
@@ -380,6 +383,16 @@ namespace Uni7.Editor.UI
                 CreateContentRoot(panel.transform, "Content", new Vector2(24f, 24f), new Vector2(-24f, -24f));
             }
             root.GetComponent<Image>().raycastTarget = true;
+
+            UIBase uiBase = root.GetComponent<UIBase>();
+
+            if (uiBase != null)
+            {
+                SerializedObject serialized = new SerializedObject(uiBase);
+                serialized.FindProperty("uiId").stringValue = entry.id;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+            }
+
             return root;
         }
 
@@ -429,14 +442,14 @@ namespace Uni7.Editor.UI
         {
             using (new EditorGUILayout.VerticalScope(GUI.skin.box))
             {
-            EditorGUILayout.LabelField("Buttonを追加", EditorStyles.boldLabel);
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                newButtonId = EditorGUILayout.TextField("ID", newButtonId);
-                newButtonAction = (UIButtonAction)EditorGUILayout.EnumPopup(newButtonAction, GUILayout.Width(145));
-                using (new EditorGUI.DisabledScope(!IsValidId(newButtonId) || buttonRegistry.EditorEntries.Any(x => x != null && x.id == newButtonId)))
-                    if (GUILayout.Button("追加", GUILayout.Width(72))) CreateButtonEntry();
-            }
+                EditorGUILayout.LabelField("Buttonを追加", EditorStyles.boldLabel);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    newButtonId = EditorGUILayout.TextField("ID", newButtonId);
+                    newButtonAction = (UIButtonAction)EditorGUILayout.EnumPopup(newButtonAction, GUILayout.Width(145));
+                    using (new EditorGUI.DisabledScope(!IsValidId(newButtonId) || buttonRegistry.EditorEntries.Any(x => x != null && x.id == newButtonId)))
+                        if (GUILayout.Button("追加", GUILayout.Width(72))) CreateButtonEntry();
+                }
             }
         }
 
@@ -603,61 +616,61 @@ namespace Uni7.Editor.UI
             PrefabHealth health = GetPrefabHealth(path, entry.prefabGuid, entry.prefabDependencyHash);
             using (new EditorGUILayout.VerticalScope(GUI.skin.box))
             {
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                DrawAssetPreview(path);
-                EditorGUILayout.LabelField(entry.id, EditorStyles.boldLabel, GUILayout.MinWidth(90));
-                GUILayout.Label(entry.action.ToString(), EditorStyles.miniLabel, GUILayout.Width(110));
-                GUILayout.FlexibleSpace();
-                DrawHealthLabel(health);
-                if (GUILayout.Button("Select", GUILayout.Width(48))) SelectAsset(path);
-                using (new EditorGUI.DisabledScope(GetPrefabHealth(path, entry.prefabGuid, entry.prefabDependencyHash) == PrefabHealth.Missing || GetPrefabHealth(path, entry.prefabGuid, entry.prefabDependencyHash) == PrefabHealth.Invalid))
-                    if (GUILayout.Button("配置", GUILayout.Width(44))) PlaceButtonPrefabIntoTarget(entry);
-                if (GUILayout.Button("×", GUILayout.Width(24)) && EditorUtility.DisplayDialog("Button設定を削除", $"'{entry.id}' の設定だけを削除します。Prefabは削除しません。", "削除", "キャンセル"))
-                {
-                    buttonRegistry.EditorEntries.RemoveAt(index);
-                    Save(buttonRegistry);
-                    GUIUtility.ExitGUI();
-                }
-            }
-            string key = "Uni7.Button.More." + entry.id;
-            bool expanded = EditorPrefs.GetBool(key, false);
-            bool next = EditorGUILayout.Foldout(expanded, "More Options", true);
-            if (next != expanded) EditorPrefs.SetBool(key, next);
-            if (next)
-            {
-                EditorGUI.indentLevel++;
-                EditorGUI.BeginChangeCheck();
-                entry.label = EditorGUILayout.TextField("Label", entry.label);
-                entry.action = (UIButtonAction)EditorGUILayout.EnumPopup("Action", entry.action);
-                DrawButtonActionSettings(entry);
-                entry.pressScale = Mathf.Max(0f, EditorGUILayout.FloatField("Press Scale", entry.pressScale));
-                entry.animationDuration = Mathf.Max(0f, EditorGUILayout.FloatField("Animation Duration", entry.animationDuration));
-                GameObject currentPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                GameObject selectedPrefab = (GameObject)EditorGUILayout.ObjectField("Prefab Asset", currentPrefab, typeof(GameObject), false);
-                if (selectedPrefab != currentPrefab)
-                {
-                    string selectedPath = selectedPrefab != null ? AssetDatabase.GetAssetPath(selectedPrefab) : "";
-                    UIEventButton selectedButton = selectedPrefab != null ? selectedPrefab.GetComponent<UIEventButton>() : null;
-                    if (selectedButton == null || selectedButton.ButtonId != entry.id)
-                        SetStatus("選択PrefabのUIEventButton IDが一致しません。", MessageType.Error);
-                    else
-                    {
-                        entry.prefabPath = selectedPath;
-                        entry.prefabGuid = AssetDatabase.AssetPathToGUID(selectedPath);
-                        entry.prefabDependencyHash = AssetDatabase.GetAssetDependencyHash(selectedPath).ToString();
-                    }
-                }
-                EditorGUILayout.LabelField("Prefab Path", GetButtonPrefabPath(entry), EditorStyles.miniLabel);
-                if (EditorGUI.EndChangeCheck()) Save(buttonRegistry);
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (GUILayout.Button("不足Prefabを作成")) CreateMissingButtonPrefab(entry);
-                    if (health == PrefabHealth.Changed || health == PrefabHealth.Unknown)
-                        if (GUILayout.Button("現在のPrefabを基準にする")) RecordButtonPrefabBaseline(entry, path);
+                    DrawAssetPreview(path);
+                    EditorGUILayout.LabelField(entry.id, EditorStyles.boldLabel, GUILayout.MinWidth(90));
+                    GUILayout.Label(entry.action.ToString(), EditorStyles.miniLabel, GUILayout.Width(110));
+                    GUILayout.FlexibleSpace();
+                    DrawHealthLabel(health);
+                    if (GUILayout.Button("Select", GUILayout.Width(48))) SelectAsset(path);
+                    using (new EditorGUI.DisabledScope(GetPrefabHealth(path, entry.prefabGuid, entry.prefabDependencyHash) == PrefabHealth.Missing || GetPrefabHealth(path, entry.prefabGuid, entry.prefabDependencyHash) == PrefabHealth.Invalid))
+                        if (GUILayout.Button("配置", GUILayout.Width(44))) PlaceButtonPrefabIntoTarget(entry);
+                    if (GUILayout.Button("×", GUILayout.Width(24)) && EditorUtility.DisplayDialog("Button設定を削除", $"'{entry.id}' の設定だけを削除します。Prefabは削除しません。", "削除", "キャンセル"))
+                    {
+                        buttonRegistry.EditorEntries.RemoveAt(index);
+                        Save(buttonRegistry);
+                        GUIUtility.ExitGUI();
+                    }
                 }
-                EditorGUI.indentLevel--;
-            }
+                string key = "Uni7.Button.More." + entry.id;
+                bool expanded = EditorPrefs.GetBool(key, false);
+                bool next = EditorGUILayout.Foldout(expanded, "More Options", true);
+                if (next != expanded) EditorPrefs.SetBool(key, next);
+                if (next)
+                {
+                    EditorGUI.indentLevel++;
+                    EditorGUI.BeginChangeCheck();
+                    entry.label = EditorGUILayout.TextField("Label", entry.label);
+                    entry.action = (UIButtonAction)EditorGUILayout.EnumPopup("Action", entry.action);
+                    DrawButtonActionSettings(entry);
+                    entry.pressScale = Mathf.Max(0f, EditorGUILayout.FloatField("Press Scale", entry.pressScale));
+                    entry.animationDuration = Mathf.Max(0f, EditorGUILayout.FloatField("Animation Duration", entry.animationDuration));
+                    GameObject currentPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    GameObject selectedPrefab = (GameObject)EditorGUILayout.ObjectField("Prefab Asset", currentPrefab, typeof(GameObject), false);
+                    if (selectedPrefab != currentPrefab)
+                    {
+                        string selectedPath = selectedPrefab != null ? AssetDatabase.GetAssetPath(selectedPrefab) : "";
+                        UIEventButton selectedButton = selectedPrefab != null ? selectedPrefab.GetComponent<UIEventButton>() : null;
+                        if (selectedButton == null || selectedButton.ButtonId != entry.id)
+                            SetStatus("選択PrefabのUIEventButton IDが一致しません。", MessageType.Error);
+                        else
+                        {
+                            entry.prefabPath = selectedPath;
+                            entry.prefabGuid = AssetDatabase.AssetPathToGUID(selectedPath);
+                            entry.prefabDependencyHash = AssetDatabase.GetAssetDependencyHash(selectedPath).ToString();
+                        }
+                    }
+                    EditorGUILayout.LabelField("Prefab Path", GetButtonPrefabPath(entry), EditorStyles.miniLabel);
+                    if (EditorGUI.EndChangeCheck()) Save(buttonRegistry);
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        if (GUILayout.Button("不足Prefabを作成")) CreateMissingButtonPrefab(entry);
+                        if (health == PrefabHealth.Changed || health == PrefabHealth.Unknown)
+                            if (GUILayout.Button("現在のPrefabを基準にする")) RecordButtonPrefabBaseline(entry, path);
+                    }
+                    EditorGUI.indentLevel--;
+                }
             }
         }
 
@@ -847,17 +860,17 @@ namespace Uni7.Editor.UI
         {
             using (new EditorGUILayout.VerticalScope(GUI.skin.box))
             {
-            EditorGUILayout.LabelField("Workspace Settings", EditorStyles.boldLabel);
-            prefabRoot = EditorGUILayout.TextField("UI Prefab Folder", prefabRoot);
-            buttonPrefabRoot = EditorGUILayout.TextField("Button Prefab Folder", buttonPrefabRoot);
-            EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("Assets", EditorStyles.boldLabel);
-            DrawAssetRow("UI Registry", registry, RegistryPath);
-            DrawAssetRow("Button Registry", buttonRegistry, ButtonRegistryPath);
-            DrawAssetRow("Event Database", eventDatabase, EventDatabasePath);
-            EditorGUILayout.Space(5);
-            EditorGUILayout.HelpBox("Scene上のUIManager/CanvasはUIRegistryをResourcesから読み込み、実行時に自動生成します。EventSystemはInput設定に依存するため既存Sceneのものを使用します。", MessageType.Info);
-            EditorGUILayout.HelpBox("Prefabの編集は自動反映しません。Prefabの変更検知はGUIDとDependency Hashで行います。差分の内容を自動マージする機能ではありません。", MessageType.None);
+                EditorGUILayout.LabelField("Workspace Settings", EditorStyles.boldLabel);
+                prefabRoot = EditorGUILayout.TextField("UI Prefab Folder", prefabRoot);
+                buttonPrefabRoot = EditorGUILayout.TextField("Button Prefab Folder", buttonPrefabRoot);
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Assets", EditorStyles.boldLabel);
+                DrawAssetRow("UI Registry", registry, RegistryPath);
+                DrawAssetRow("Button Registry", buttonRegistry, ButtonRegistryPath);
+                DrawAssetRow("Event Database", eventDatabase, EventDatabasePath);
+                EditorGUILayout.Space(5);
+                EditorGUILayout.HelpBox("Scene上のUIManager/CanvasはUIRegistryをResourcesから読み込み、実行時に自動生成します。EventSystemはInput設定に依存するため既存Sceneのものを使用します。", MessageType.Info);
+                EditorGUILayout.HelpBox("Prefabの編集は自動反映しません。Prefabの変更検知はGUIDとDependency Hashで行います。差分の内容を自動マージする機能ではありません。", MessageType.None);
             }
         }
 

@@ -8,7 +8,16 @@ namespace Uni7.UI
     public abstract class UIBase : MonoBehaviour
     {
         [NonSerialized] private CanvasGroup canvasGroup;
-        public string UIId { get; internal set; }
+
+        [SerializeField, HideInInspector]
+        private string uiId;
+
+        public string UIId
+        {
+            get => uiId;
+            internal set => uiId = value;
+        }
+
         public UIState State { get; internal set; } = UIState.None;
         public CanvasGroup CanvasGroup => canvasGroup != null ? canvasGroup : (canvasGroup = GetComponent<CanvasGroup>());
 

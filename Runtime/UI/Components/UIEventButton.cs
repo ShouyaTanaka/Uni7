@@ -20,7 +20,7 @@ namespace Uni7.UI
         [SerializeField] private string buttonId;
         [SerializeField, FormerlySerializedAs("transition")] private UIButtonAction action;
         [SerializeField] private string destinationUIId;
-        [SerializeField] private bool closeCurrentBeforeOpen;
+        [SerializeField] private bool closeCurrentBeforeOpen = true;
         [SerializeField] private string eventCategory;
         [SerializeField] private string eventName;
         [SerializeField] private EventParameterType parameterType;
@@ -163,17 +163,17 @@ namespace Uni7.UI
                 case EventParameterType.Float: return float.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
                 case EventParameterType.Bool: return bool.Parse(value);
                 case EventParameterType.Vector2:
-                {
-                    string[] p = (value ?? "").Split(',');
-                    if (p.Length != 2) throw new FormatException("Vector2は 'x,y' 形式で入力してください。");
-                    return new Vector2(float.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture));
-                }
+                    {
+                        string[] p = (value ?? "").Split(',');
+                        if (p.Length != 2) throw new FormatException("Vector2は 'x,y' 形式で入力してください。");
+                        return new Vector2(float.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture));
+                    }
                 case EventParameterType.Vector3:
-                {
-                    string[] p = (value ?? "").Split(',');
-                    if (p.Length != 3) throw new FormatException("Vector3は 'x,y,z' 形式で入力してください。");
-                    return new Vector3(float.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture));
-                }
+                    {
+                        string[] p = (value ?? "").Split(',');
+                        if (p.Length != 3) throw new FormatException("Vector3は 'x,y,z' 形式で入力してください。");
+                        return new Vector3(float.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture));
+                    }
                 case EventParameterType.GameObject: return objectValue;
                 default: return null;
             }

@@ -26,7 +26,7 @@ namespace Uni7.UI
         public string prefabDependencyHash;
         public UIButtonAction action;
         public string destinationUIId;
-        public bool closeCurrentBeforeOpen;
+        public bool closeCurrentBeforeOpen = true;
         public string eventCategory;
         public string eventName;
         public EventParameterType parameterType;

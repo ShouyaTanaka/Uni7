@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using UnityEditor;
 using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
@@ -48,6 +49,103 @@ namespace Uni7.Editor.Setup
         }
 
         public static bool IsRunning => isRunning;
+
+        /// <summary>
+        /// AddressablesのSettingsを確認し、存在しない場合だけデフォルト設定を生成します。
+        /// Addressablesへのコンパイル時参照を避けるためReflectionで呼び出します。
+        /// </summary>
+        public static bool EnsureAddressablesSettings(out string message)
+        {
+            message = string.Empty;
+
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+            {
+                message = "UnityがコンパイルまたはPackage更新中です。完了してから再試行してください。";
+                return false;
+            }
+
+            try
+            {
+                Type defaultObjectType = FindType(
+                    "UnityEditor.AddressableAssets.AddressableAssetSettingsDefaultObject");
+
+                if (defaultObjectType == null)
+                {
+                    message = "Addressables Editor APIが見つかりません。Addressablesの導入と再コンパイルが完了しているか確認してください。";
+                    return false;
+                }
+
+                PropertyInfo existsProperty = defaultObjectType.GetProperty(
+                    "SettingsExists", BindingFlags.Public | BindingFlags.Static);
+                PropertyInfo settingsProperty = defaultObjectType.GetProperty(
+                    "Settings", BindingFlags.Public | BindingFlags.Static);
+                bool settingsExists = existsProperty != null &&
+                    existsProperty.PropertyType == typeof(bool)
+                    ? (bool)existsProperty.GetValue(null)
+                    : settingsProperty != null && settingsProperty.GetValue(null) != null;
+
+                MethodInfo getSettings = defaultObjectType.GetMethod(
+                    "GetSettings", BindingFlags.Public | BindingFlags.Static,
+                    null, new[] { typeof(bool) }, null);
+
+                if (getSettings == null)
+                {
+                    message = "AddressablesのGetSettings(bool) APIが見つかりません。インストールされているバージョンとの互換性を確認してください。";
+                    return false;
+                }
+
+                // 既存設定がある場合は取得のみ。新規生成を要求しない。
+                object settings = getSettings.Invoke(null, new object[] { !settingsExists });
+                if (settings == null)
+                {
+                    message = "Addressables Settingsを取得・生成できませんでした。";
+                    return false;
+                }
+
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+
+                PropertyInfo defaultGroupProperty = settings.GetType().GetProperty(
+                    "DefaultGroup", BindingFlags.Public | BindingFlags.Instance);
+                object defaultGroup = defaultGroupProperty?.GetValue(settings);
+
+                if (settingsExists)
+                {
+                    message = defaultGroup != null
+                        ? "既存のAddressables Settingsを確認しました。既存設定は変更していません。"
+                        : "Addressables Settingsは存在しますがDefault Groupがありません。既存設定を保護するため、自動変更は行っていません。";
+                    return defaultGroup != null;
+                }
+
+                message = defaultGroup != null
+                    ? "Addressables SettingsとDefault Groupを新規作成しました。"
+                    : "Addressables Settingsを新規作成しましたが、Default Groupを確認できませんでした。Addressables Groupsを確認してください。";
+                return defaultGroup != null;
+            }
+            catch (TargetInvocationException exception)
+            {
+                Exception cause = exception.InnerException ?? exception;
+                message = "Addressables初期化中にエラーが発生しました。\n" + cause.Message;
+                return false;
+            }
+            catch (Exception exception)
+            {
+                message = "Addressables初期化中にエラーが発生しました。\n" + exception.Message;
+                return false;
+            }
+        }
+
+        private static Type FindType(string fullName)
+        {
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type type = assembly.GetType(fullName, false);
+                if (type != null)
+                    return type;
+            }
+
+            return null;
+        }
 
         public static int CreateProjectFolders()
         {

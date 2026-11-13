@@ -51,7 +51,7 @@ namespace Uni7.Editor.Setup
 
                 EditorGUILayout.Space(8);
                 EditorGUILayout.LabelField("External Packages", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("UniTask / UniRx (Git URL)/ Addressables ");
+                EditorGUILayout.LabelField("UniTask / UniRx / Addressables");
 
                 if (GUILayout.Button("Check & Install Dependencies", GUILayout.Height(30)))
                 {
@@ -70,6 +70,18 @@ namespace Uni7.Editor.Setup
                             SetStatus(message, success ? MessageType.Info : MessageType.Error);
                             Repaint();
                         });
+                }
+
+                EditorGUILayout.Space(10);
+                EditorGUILayout.LabelField("Addressables", EditorStyles.boldLabel);
+                EditorGUILayout.HelpBox(
+                    "Addressables導入後にSettingsを確認します。未作成の場合だけUnity標準のSettingsを生成します。既存Settingsは上書きしません。",
+                    MessageType.Info);
+
+                if (GUILayout.Button("Check / Create Addressables Settings", GUILayout.Height(30)))
+                {
+                    bool success = Uni7SetupRunner.EnsureAddressablesSettings(out string message);
+                    SetStatus(message, success ? MessageType.Info : MessageType.Warning);
                 }
 
                 EditorGUILayout.Space(8);
