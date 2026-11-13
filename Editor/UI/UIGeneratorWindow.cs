@@ -25,7 +25,7 @@ namespace Uni7.Editor.UI
         private const string ButtonRegistryPath = "Assets/Resources/Uni7/UIButtonRegistry.asset";
         private const string EventDatabasePath = "Assets/Scripts/GenerateEvents/EventDefinitionDatabase.asset";
         private const string DefaultPrefabRoot = "Assets/Uni7/UI/Prefabs";
-        private const string DefaultButtonPrefabRoot = "Assets/Uni7/UI/Buttons";
+        private const string DefaultButtonPrefabRoot = "Assets/Uni7/UI/Prefabs/Buttons";
 
         private enum WorkspaceTab { UI, Button, Settings }
         private WorkspaceTab tab;
