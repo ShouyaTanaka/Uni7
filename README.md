@@ -1,11 +1,29 @@
 # Uni7
 
-Unity向けの診断機能をまとめたパッケージです。
+Uni7は、Unityプロジェクトの診断、イベントコード生成、UI管理を支援するパッケージです。
 
-- **UTLog**: ログの記録・検索・選択・書き出しを行う診断コンソール
-- **Runtime Invoker**: Play Mode中に属性付きメソッドを検索して実行するEditorWindow
+- **Diagnostics Console / UTLog**: ログの記録・収集・検索・書き出し
+- **Runtime Invoker**: Play Mode中に属性付きメソッドを検索して実行
+- **Event Manager Generator**: イベント定義から型付きC#コードを生成
+- **UI Workspace / UI runtime**: Window・Modal・Buttonの登録、Addressables経由の表示、プール管理
+- **Setup Manager**: プロジェクト用フォルダ、外部Package、Addressables設定の確認
 
-すべてのRuntime APIは `Uni7.Diagnostics` 名前空間にあります。
+Runtime APIの名前空間は機能ごとに異なります。
+
+- 診断: `Uni7.Diagnostics`
+- イベント: `Uni7.Events`
+- UI: `Uni7.UI`
+
+## セットアップ
+
+Unityメニューの **`Tools > Uni7 > Setup Manager`** を開きます。
+
+1. **Create / Repair Project Folders** でプロジェクト用フォルダを作成する。
+2. **Check & Install Dependencies** でUniTask、UniRx、Addressablesを確認・導入する。
+3. Addressablesを使用する場合は、**Check / Create Addressables Settings** で設定を確認する。
+4. まとめて実行する場合は **Run Full Setup** を使用する。
+
+既存のフォルダ、ファイル、Addressables Settingsは削除・上書きされません。
 
 ## UTLog
 
@@ -25,22 +43,18 @@ public sealed class Player : MonoBehaviour
         UTLog.Warning("Low HP");
         UTLog.Error("Initialization failed");
 
-        // object / UnityEngine.Object / context
         UTLog.Log(hp);
         UTLog.Log(transform.position, transform);
         UTLog.Log("Player spawned", gameObject);
 
-        // 書式付きログ
         UTLog.LogFormat("HP: {0}/{1}", hp, 100);
         UTLog.WarningFormat("HP: {0}", hp);
         UTLog.ErrorFormat("HP: {0}", hp);
 
-        // Tag付きログ
         UTLog.LogTagged("Player", "Spawned");
         UTLog.WarningTagged("Player", "HP is low");
         UTLog.ErrorTagged("Player", "Invalid state");
 
-        // 条件付きログ（conditionがtrueのときだけ記録）
         UTLog.LogIf(hp <= 0, "Player is dead");
         UTLog.WarningIf(hp < 20, "HP is low");
         UTLog.ErrorIf(hp < 0, "HP is invalid");
@@ -57,12 +71,13 @@ public sealed class Player : MonoBehaviour
 }
 ```
 
-`UTLog.Log`、`Warning`、`Error`はログを記録した直後に `LogBuilder` を返します。
-既存コードとの互換性のため、次のチェーンAPIも利用できます。新規コードではTagやContextを直接指定できるAPIを推奨します。
+`Log`、`Warning`、`Error`は記録直後に`LogBuilder`を返します。既存コードとの互換性のため、次のチェーンAPIも利用できます。
 
 ```csharp
 UTLog.Log("Player spawned").Tag("Player").Context(gameObject);
 ```
+
+新規コードでは、TagやContextを直接指定できる`LogTagged`やContext付きの`Log`などを推奨します。
 
 ### API
 
@@ -86,7 +101,7 @@ UTLog.Log("Player spawned").Tag("Player").Context(gameObject);
 - `UTLog.LogException(Exception exception, UnityEngine.Object context = null)`
 - `UTLog.LogObject(object value, string tag = "Object")`
 
-`LogException(null)`はエラーログとして記録されます。書式文字列に不正な引数がある場合は、例外を投げずにメッセージへエラー内容を付加します。
+`LogException(null)`はnull例外を受け取ったことをエラーログとして記録します。書式文字列に不正な引数がある場合は例外を投げず、メッセージに`FormatException`の内容を付加します。
 
 #### 履歴・収集設定
 
@@ -101,12 +116,11 @@ UTLogSettings.MaxLogEntries = 50000; // 0以下で無制限
 UTLogSettings.MirrorToUnityConsole = false;
 ```
 
-`UTLog`は自動初期化され、Unity標準ログも初期状態では取り込みます。
-また、UTLogで記録したログは初期状態ではUnity標準Consoleにも出力されます。
+UTLogは自動初期化され、Unity標準ログの取り込みは初期状態で有効です。また、UTLogで記録したログは初期状態でUnity標準Consoleにも出力されます。
 
 ## Diagnostics Console
 
-Unityメニューの **`Tools > Uni7 > Diagnostics Console`** から開きます。
+Unityメニューの **`Tools > Uni7 > Diagnostics > Console`** から開きます。
 
 - Log / Warning / Errorの表示切り替えと件数表示
 - メッセージ・Tag・Stack Traceのテキスト検索
@@ -123,15 +137,15 @@ Unityメニューの **`Tools > Uni7 > Diagnostics Console`** から開きます
 - **Pause**: ウィンドウの再描画だけを一時停止（ログ収集は継続）
 - **Details**: 選択ログの詳細パネルを表示
 - 詳細パネルの境界をドラッグして幅を変更
-- **More**からログのテキスト書き出し・取り込み
-- **More > Settings > Max entries**から保持上限を1,000 / 10,000 / 50,000 / 無制限に変更
+- **More > Export / Save all logs as text...** で書き出し
+- **More > Import / Import text log...** で取り込み
+- **More > Settings > Max entries** で保持上限を1,000 / 10,000 / 50,000 / 無制限に変更
 
-書き出しはUTF-8の `.txt` ファイルです。取り込んだ各行はTag `Imported` のログとして追加されます。
+書き出しはUTF-8の`.txt`ファイルです。取り込んだ各行はTag `Imported` のログとして追加されます。
 
 ## Runtime Invoker
 
-Play Mode中に、`[CanReflection]` を付けたPublicメソッドを検索して実行します。
-デバッグ用メソッドをInspectorや一時的なコードから呼び出す代わりに、引数を入力して実行できます。
+Play Mode中に、`[CanReflection]`を付けたPublicメソッドを検索して実行します。
 
 ### 対象メソッドの公開
 
@@ -160,16 +174,18 @@ public sealed class PlayerController : MonoBehaviour
 }
 ```
 
-属性のルール:
-
-- クラスに `[CanReflection]` を付けると、そのクラスの対応するPublicメソッドが対象になります。
-- メソッドに `[CanReflection]` を付けると、クラス属性がなくてもそのメソッドだけが対象になります。
+- クラスに`[CanReflection]`を付けると、そのクラスの対応するPublicメソッドが対象になります。
+- メソッドに`[CanReflection]`を付けると、クラス属性がなくてもそのメソッドだけが対象になります。
 - メソッド属性のCategoryはクラス属性より優先されます。
-- Categoryを省略した場合は `General` になります。
+- Categoryを省略した場合は`General`になります。
+
+Unityメニューの **`Tools > Uni7 > Diagnostics > Runtime Invoker`** を開き、Play Modeに入ってから**Refresh**を押します。Namespace、クラス、Category、メソッド名で検索し、対象と引数を指定して**Invoke**します。
+
+Refreshは手動操作時だけReflectionによる検出を行います。検索・選択・再描画では再スキャンしません。Play Modeを終了した後や対象インスタンスが変わった後は、再度Refreshしてください。
 
 ### 通常のC#クラスを登録する
 
-`MonoBehaviour`以外のインスタンスは、自動ではSceneから検索されません。Play Mode中に登録してください。
+`MonoBehaviour`以外のインスタンスはSceneから自動検索されません。Play Mode中に登録してください。
 
 ```csharp
 using Uni7.Diagnostics;
@@ -198,19 +214,7 @@ public sealed class GameBootstrap
 }
 ```
 
-`RuntimeRegistry.Register`は同じインスタンスを重複登録せず、`Unregister`、`Clear`も利用できます。
-登録・解除後はRuntime Invokerで **Refresh** を押してください。
-
-### ウィンドウの使い方
-
-1. Unityメニューの **`Tools > Developer Toolkit > Runtime Invoker`** を開く。
-2. Play Modeに入る。
-3. **Refresh** を押してメソッドと対象インスタンスを検出する。
-4. Namespace、クラス、Category、メソッド名で検索する。
-5. クラスとメソッドを選択し、引数を入力して **Invoke** を押す。
-
-Refreshは手動操作時だけ検出処理を行います。検索・選択・再描画ではReflectionスキャンを行いません。
-Play Modeを終了した後や対象インスタンスが変わった後は、再度Play Modeに入りRefreshしてください。
+`RuntimeRegistry.Register`は同じインスタンスを重複登録しません。`Unregister`と`Clear`も利用できます。登録・解除後はRuntime Invokerで**Refresh**を押してください。
 
 ### 対応する引数
 
@@ -222,21 +226,71 @@ Play Modeを終了した後や対象インスタンスが変わった後は、�
 - `Color` / `Rect` / `Bounds` / `Quaternion`
 - `UnityEngine.Object`派生型（Scene Objectを指定可能）
 
-次のメソッドは対象外です。
+generic method、`ref` / `out` / `params`、ポインタ型、optional parameter、未対応の引数型、特殊メソッド、コンストラクター、型引数を含むメソッドは対象外です。戻り値はInvoke後にステータスバーへ表示されます。`Task` / `UniTask`などを自動でawaitする機能はありません。
 
-- generic method
-- `ref` / `out` / `params`
-- ポインタ型・ポインタを返すメソッド
-- optional parameter
-- 未対応の引数型
-- 特殊メソッド・コンストラクター・型引数を含むメソッド
+## Event Manager Generator
 
-戻り値はInvoke後にステータスバーへ表示されます。`Task` / `UniTask`などの非同期処理を自動でawaitする機能はありません。
+イベント定義から、カテゴリごとのイベントクラスと`EventManager`を生成します。生成されたイベントには、購読用の`On...`、1回だけ待機する`Wait...`、発行用の`Emit...`が用意されます。
 
-### 検出範囲と負荷
+1. Unityメニューの **`Tools > Uni7 > Events > Generator`** を開く。
+2. Categoryを追加する（初回の生成時にはUIカテゴリとUI操作イベントも自動追加されます）。
+3. Event名とParameter（`None` / `Int` / `Float` / `String` / `Bool` / `Vector2` / `Vector3` / `GameObject`）を追加する。
+4. **Save + Generate** を押す。
 
-- 属性付き候補の取得にはUnityの`TypeCache`を使用します。
-- Scene上の`MonoBehaviour`は、非アクティブなObjectも含めてRefresh時に一度だけ検索します。
-- `RuntimeRegistry`に登録された通常クラスのインスタンスもRefresh時に取得します。
-- static methodはインスタンスなしで実行できます。
-- メソッド情報の構築と対象検索はRefresh時だけ行います。
+定義は`Assets/Scripts/GenerateEvents/EventDefinitionDatabase.asset`に保存され、コードは`Assets/Scripts/GenerateEvents/`以下に生成されます。生成ファイルは手動編集せず、Generatorから再生成してください。
+
+生成後は、プロジェクト側で次のようにイベントを発行できます。
+
+```csharp
+EventManager.UI.EmitOpenWindow("Settings");
+```
+
+購読や1回だけの待機もできます。
+
+```csharp
+using System;
+using Cysharp.Threading.Tasks;
+using UnityEngine;
+
+IDisposable subscription = EventManager.UI.OnOpenWindow(id => Debug.Log(id));
+UniTask<string> nextWindow = EventManager.UI.WaitOpenWindow();
+```
+
+実際のカテゴリ名・イベント名はプロジェクトで登録した定義に置き換えてください。生成コードは`Cysharp.Threading.Tasks`と`UniRx`を使用します。
+
+**`Tools > Uni7 > Events > Debugger`** のEvent Debuggerでは、生成済みのイベントを選択してPlay Mode中に発行できます。
+
+## UI WorkspaceとUI runtime
+
+### Editorで登録する
+
+Unityメニューの **`Tools > Uni7 > UI > Generator`** を開きます。
+
+- **UI**: Window / ModalのID、Prefab、プール数、アニメーションを管理
+- **Button**: Button IDとOpen / Close / Emit EventなどのActionを管理
+- **Settings**: UIとButtonのPrefab生成先や関連設定を管理
+
+UIは`UIRegistry`、Buttonは`UIButtonRegistry`として保存されます。Prefabは自動で上書きされません。UIのロードにはAddressablesを使用するため、PrefabをAddressablesに登録し、RegistryのAddressを一致させてください。
+
+### Runtimeから開閉する
+
+`UIRegistry`を`Assets/Resources/Uni7/UIRegistry.asset`に作成すると、`UIRuntimeBootstrap`が起動時にCanvas、Window root、Modal root、`UIManager`を自動生成します。Sceneに手動配置する場合は、`UIManager`にRegistry、Window root、Modal rootを設定してください。`UIWindow`または`UIModal`を継承したPrefabをRegistryに登録してください。
+
+```csharp
+using Cysharp.Threading.Tasks;
+using Uni7.UI;
+
+public async UniTask ShowSettings()
+{
+    await UIManager.Instance.OpenWindowAsync("Settings");
+}
+
+public async UniTask CloseSettings()
+{
+    await UIManager.Instance.CloseUIAsync("Settings");
+}
+```
+
+UI IDでWindow / Modalを開閉でき、`PreloadAsync`、`CloseTopModalAsync`、`CloseAllWindowsAsync`、`CloseAllAsync`、`ReleasePoolAsync`も利用できます。Addressablesのロード、アニメーション、初期プール、最大プール数はUIEntryの設定に従います。
+
+ButtonやコードからUIイベントを発行する場合は、`UIEventHub.PublishOpenWindow`、`PublishOpenModal`、`PublishCloseUI`、`PublishCloseTopModal`、`PublishCloseAll`を使用できます。

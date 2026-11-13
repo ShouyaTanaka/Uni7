@@ -1,6 +1,6 @@
 {
     "name": "com.uni7",
     "displayName": "Uni7",
-    "version": "0.0.2",
-    "description": "test"
+    "version": "0.0.5",
+    "description": "Unityのイベント駆動を効率よく作成使用するためのもの"
 }
