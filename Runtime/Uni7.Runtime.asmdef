@@ -5,7 +5,8 @@
         "UniTask",
         "UniRx",
         "Unity.Addressables",
-        "Unity.ResourceManager"
+        "Unity.ResourceManager",
+        "Unity.ugui"
     ],
     "allowUnsafeCode": false,
     "overrideReferences": false,
