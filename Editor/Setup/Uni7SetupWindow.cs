@@ -51,7 +51,7 @@ namespace Uni7.Editor.Setup
 
                 EditorGUILayout.Space(8);
                 EditorGUILayout.LabelField("External Packages", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("UniTask / UniRx (Git URL)");
+                EditorGUILayout.LabelField("UniTask / UniRx (Git URL)/ Addressables ");
 
                 if (GUILayout.Button("Check & Install Dependencies", GUILayout.Height(30)))
                 {

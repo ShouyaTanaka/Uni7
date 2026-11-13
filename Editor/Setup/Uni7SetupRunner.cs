@@ -5,7 +5,6 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
-using UnityEngine;
 
 namespace Uni7.Editor.Setup
 {
@@ -87,6 +86,8 @@ namespace Uni7.Editor.Setup
                 PackageInfoConst.UniTaskName, PackageInfoConst.UniTaskGit));
             installQueue.Enqueue(new PackageDefinition(
                 PackageInfoConst.UniRxName, PackageInfoConst.UniRxGit));
+            installQueue.Enqueue(new PackageDefinition(
+                PackageInfoConst.AddressablesName, PackageInfoConst.AddressablesGit));
 
             onProgress?.Invoke("インストール済みPackageを確認しています...");
             listRequest = Client.List(true, true);
