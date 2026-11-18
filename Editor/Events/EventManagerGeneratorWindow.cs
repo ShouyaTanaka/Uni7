@@ -24,10 +24,15 @@ namespace Uni7.Events
 
         private Vector2 scroll;
         private string searchQuery = "";
-        private bool showInstructions = true;
+        private bool showInstructions = false;
+        private bool showCreatePanel = true;
+        private Vector2 navigationScroll;
+        private Vector2 inspectorScroll;
+        private string selectedEventKey = "";
 
-        // Foldout state is kept per category name during this editor session.
+        // Foldout state is kept per category/event during this editor session.
         private readonly Dictionary<string, bool> categoryFoldouts = new();
+        private readonly Dictionary<string, bool> eventFoldouts = new();
 
         [MenuItem("Tools/Uni7/Events/Generator")]
         public static void Open()
@@ -37,7 +42,7 @@ namespace Uni7.Events
 
         private void OnEnable()
         {
-            minSize = new Vector2(640f, 520f);
+            minSize = new Vector2(680f, 520f);
             titleContent = new GUIContent("Event Generator");
             LoadOrCreateDatabase();
         }
@@ -47,41 +52,18 @@ namespace Uni7.Events
             if (database == null)
             {
                 LoadOrCreateDatabase();
-                if (database == null)
-                    return;
+                if (database == null) return;
             }
 
+            EnsureDatabaseCollections();
             DrawToolbar();
-            EditorGUILayout.Space(4);
+            DrawStatusHeader();
 
             if (showInstructions)
-            {
-                EditorGUILayout.HelpBox(
-                    "カテゴリとイベントを登録し、Save + Generateでコードを更新します。",
-                    MessageType.Info);
-            }
+                EditorGUILayout.HelpBox("左側でカテゴリ・イベントを選択し、右側で詳細を編集します。ウィンドウ幅に応じて自動的にレイアウトが切り替わります。", MessageType.Info);
 
-            DrawAddSection();
-            EditorGUILayout.Space(6);
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUILayout.LabelField(
-                    $"{database.categories.Count} categories / {database.categories.Sum(x => x.events.Count)} events",
-                    EditorStyles.miniLabel);
-                GUILayout.FlexibleSpace();
-                EditorGUILayout.LabelField(
-                    string.IsNullOrWhiteSpace(searchQuery) ? "Showing all events" : "Filtered",
-                    EditorStyles.miniLabel);
-            }
-
-            using (var scrollScope = new EditorGUILayout.ScrollViewScope(scroll))
-            {
-                DrawEventList();
-                scroll = scrollScope.scrollPosition;
-            }
-
-            EditorGUILayout.Space(6);
+            DrawCreatePanel();
+            DrawWorkspace();
             DrawActionBar();
         }
 
@@ -89,236 +71,338 @@ namespace Uni7.Events
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                GUILayout.Label("Event Manager Generator", EditorStyles.boldLabel, GUILayout.Width(170));
-
+                GUILayout.Label("Uni7 / Event Manager", EditorStyles.boldLabel, GUILayout.Width(160));
                 if (GUILayout.Button("Reload", EditorStyles.toolbarButton, GUILayout.Width(55)))
                 {
                     database = null;
                     LoadOrCreateDatabase();
+                    selectedEventKey = "";
                     Repaint();
                 }
 
                 GUILayout.FlexibleSpace();
-
-                searchQuery = EditorGUILayout.TextField(
-                    searchQuery,
-                    EditorStyles.toolbarSearchField,
-                    GUILayout.MinWidth(160),
-                    GUILayout.MaxWidth(280));
-
-                if (GUILayout.Button("Clear", EditorStyles.toolbarButton, GUILayout.Width(42)))
+                GUILayout.Label("Search", EditorStyles.miniLabel, GUILayout.Width(42));
+                searchQuery = EditorGUILayout.TextField(searchQuery, EditorStyles.toolbarSearchField,
+                    GUILayout.MinWidth(70), GUILayout.MaxWidth(240));
+                if (GUILayout.Button("×", EditorStyles.toolbarButton, GUILayout.Width(24)))
                 {
                     searchQuery = "";
                     GUI.FocusControl(null);
                 }
-
-                showInstructions = GUILayout.Toggle(
-                    showInstructions,
-                    "Help",
-                    EditorStyles.toolbarButton,
-                    GUILayout.Width(48));
+                showInstructions = GUILayout.Toggle(showInstructions, "Help", EditorStyles.toolbarButton, GUILayout.Width(48));
             }
         }
 
-        private void DrawAddSection()
+        private void DrawStatusHeader()
         {
-            using (new EditorGUILayout.VerticalScope("box"))
+            int categoryCount = database.categories.Count(x => x != null);
+            int eventCount = database.categories.Where(x => x != null && x.events != null).Sum(x => x.events.Count(e => e != null));
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                EditorGUILayout.LabelField("Add Event Definition", EditorStyles.boldLabel);
-                DrawAddCategory();
-                EditorGUILayout.Space(4);
-                DrawAddEvent();
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("EVENT DEFINITIONS", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    EditorGUILayout.LabelField($"{categoryCount} Categories", EditorStyles.miniBoldLabel, GUILayout.Width(100));
+                    EditorGUILayout.LabelField($"{eventCount} Events", EditorStyles.miniBoldLabel, GUILayout.Width(80));
+                }
+                EditorGUILayout.LabelField("生成先", GeneratedFolder, EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("現在の選択", string.IsNullOrEmpty(selectedEventKey) ? "イベント未選択" : selectedEventKey, EditorStyles.miniLabel);
+            }
+        }
+
+        private void DrawCreatePanel()
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    showCreatePanel = EditorGUILayout.Foldout(showCreatePanel, "追加・作成", true, EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    if (!showCreatePanel) GUILayout.Label("カテゴリ / イベント", EditorStyles.miniLabel);
+                }
+                if (!showCreatePanel) return;
+
+                float width = Mathf.Max(260f, position.width - 45f);
+                bool narrow = width < 760f;
+                Action drawCategoryCreator = () =>
+                {
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                    {
+                        EditorGUILayout.LabelField("カテゴリを作成", EditorStyles.miniBoldLabel);
+                        newCategoryName = EditorGUILayout.TextField(newCategoryName, GUILayout.MinHeight(24), GUILayout.ExpandWidth(true));
+                        using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(newCategoryName)))
+                            if (GUILayout.Button("＋ カテゴリ", GUILayout.Height(25))) AddCategory();
+                    }
+                };
+                Action drawEventCreator = () =>
+                {
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.ExpandWidth(true)))
+                    {
+                        EditorGUILayout.LabelField("イベントを作成", EditorStyles.miniBoldLabel);
+                        var validCategories = database.categories.Where(x => x != null).ToList();
+                        if (validCategories.Count == 0) EditorGUILayout.HelpBox("先にカテゴリを作成してください。", MessageType.Info);
+                        else
+                        {
+                            string[] names = validCategories.Select(x => x.categoryName).ToArray();
+                            int index = Mathf.Clamp(EditorPrefs.GetInt("EventManagerGenerator.CategoryIndex", 0), 0, names.Length - 1);
+                            index = EditorGUILayout.Popup("追加先", index, names);
+                            EditorPrefs.SetInt("EventManagerGenerator.CategoryIndex", index);
+                            newEventName = EditorGUILayout.TextField("イベント名", newEventName, GUILayout.MinHeight(24));
+                            using (new EditorGUILayout.HorizontalScope())
+                            {
+                                newParameterType = (EventParameterType)EditorGUILayout.EnumPopup("初期引数", newParameterType, GUILayout.MinWidth(120));
+                                GUILayout.FlexibleSpace();
+                                using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(newEventName)))
+                                    if (GUILayout.Button("＋ イベント", GUILayout.Width(105), GUILayout.Height(24))) AddEvent(index);
+                            }
+                        }
+                    }
+                };
+                if (narrow)
+                {
+                    using (new EditorGUILayout.VerticalScope()) { drawCategoryCreator(); drawEventCreator(); }
+                }
+                else
+                {
+                    using (new EditorGUILayout.HorizontalScope()) { drawCategoryCreator(); drawEventCreator(); }
+                }
             }
         }
 
         private void DrawActionBar()
         {
-            using (new EditorGUILayout.HorizontalScope())
+            using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                if (GUILayout.Button("Save", GUILayout.Height(30)))
-                {
-                    SaveDatabase();
-                }
-
-                if (GUILayout.Button("Generate", GUILayout.Height(30)))
-                {
-                    SaveDatabase();
-                    GenerateAll();
-                }
-
-                if (GUILayout.Button("Save + Generate", GUILayout.Height(30)))
+                GUILayout.Label("出力先: " + GeneratedFolder, EditorStyles.miniLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("保存", EditorStyles.toolbarButton, GUILayout.Width(55))) SaveDatabase();
+                if (GUILayout.Button("保存して生成", EditorStyles.toolbarButton, GUILayout.Width(105)))
                 {
                     SaveDatabase();
                     GenerateAll();
                 }
             }
-
-            EditorGUILayout.HelpBox(
-                "生成先: Assets/Scripts/GenerateEvents/\n" +
-                "生成ファイルは手動編集せず、このEditorから再生成してください。",
-                MessageType.None);
         }
 
-        private void DrawAddCategory()
+        private void DrawWorkspace()
         {
+            float availableWidth = position.width;
+            bool wide = availableWidth >= 1050f;
             using (new EditorGUILayout.HorizontalScope())
             {
-                newCategoryName = EditorGUILayout.TextField(
-                    new GUIContent("Category", "C# identifier used for the generated class"),
-                    newCategoryName);
-
-                using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(newCategoryName)))
-                    if (GUILayout.Button("Add Category", GUILayout.Width(100)))
-                    {
-                        AddCategory();
-                    }
-            }
-        }
-
-        private void DrawAddEvent()
-        {
-            if (database.categories.Count == 0)
-            {
-                EditorGUILayout.HelpBox("先にカテゴリを作成してください。", MessageType.Warning);
-                return;
-            }
-
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                int categoryIndex = Mathf.Max(0, EditorPrefs.GetInt("EventManagerGenerator.CategoryIndex", 0));
-                categoryIndex = Mathf.Clamp(categoryIndex, 0, database.categories.Count - 1);
-
-                string[] categoryNames = database.categories
-                    .Select(x => x.categoryName)
-                    .ToArray();
-
-                categoryIndex = EditorGUILayout.Popup(categoryIndex, categoryNames);
-                EditorPrefs.SetInt("EventManagerGenerator.CategoryIndex", categoryIndex);
-
-                newEventName = EditorGUILayout.TextField(
-                    new GUIContent("Event", "C# identifier used for generated methods"),
-                    newEventName);
-                newParameterType = (EventParameterType)EditorGUILayout.EnumPopup(
-                    new GUIContent("Parameter"),
-                    newParameterType);
-
-                using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(newEventName)))
-                    if (GUILayout.Button("Add Event", GUILayout.Width(100)))
-                    {
-                        AddEvent(categoryIndex);
-                    }
-            }
-        }
-
-        private void DrawEventList()
-        {
-            string categoryToDelete = null;
-            var eventsToDelete = new List<(EventCategoryDefinition category, EventDefinition definition)>();
-
-            for (int categoryIndex = 0; categoryIndex < database.categories.Count; categoryIndex++)
-            {
-                EventCategoryDefinition category = database.categories[categoryIndex];
-                if (category == null || !HasVisibleEvent(category))
-                    continue;
-
-                if (!categoryFoldouts.ContainsKey(category.categoryName))
-                    categoryFoldouts[category.categoryName] = true;
-
-                using (new EditorGUILayout.VerticalScope("box"))
+                if (wide)
                 {
-                    using (new EditorGUILayout.HorizontalScope())
+                    DrawNavigationPane(GUILayout.Width(Mathf.Clamp(availableWidth * 0.30f, 280f, 370f)), GUILayout.ExpandHeight(true));
+                    DrawInspectorPane(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+                }
+                else
+                {
+                    using (new EditorGUILayout.VerticalScope())
                     {
-                        categoryFoldouts[category.categoryName] = EditorGUILayout.Foldout(
-                            categoryFoldouts[category.categoryName],
-                            $"{category.categoryName}  ({GetVisibleEventCount(category)}/{category.events.Count})",
-                            true,
-                            EditorStyles.boldLabel);
-
-                        GUILayout.FlexibleSpace();
-                        if (GUILayout.Button("Delete Category", GUILayout.Width(120)) &&
-                            EditorUtility.DisplayDialog("Delete Category",
-                                $"「{category.categoryName}」を削除しますか？", "Delete", "Cancel"))
-                        {
-                            categoryToDelete = category.categoryName;
-                        }
+                        DrawNavigationPane(GUILayout.ExpandWidth(true), GUILayout.Height(Mathf.Clamp(position.height * 0.34f, 170f, 290f)));
+                        DrawInspectorPane(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
                     }
+                }
+            }
+        }
 
-                    if (!categoryFoldouts[category.categoryName])
-                        continue;
-
-                    foreach (EventDefinition e in category.events)
+        private void DrawNavigationPane(params GUILayoutOption[] options)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, options))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("カテゴリ・イベント", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label($"{database.categories.Count} カテゴリ", EditorStyles.miniLabel);
+                }
+                int visibleCategories = 0;
+                var eventsToDelete = new List<(EventCategoryDefinition category, EventDefinition definition)>();
+                using (var navigationScope = new EditorGUILayout.ScrollViewScope(navigationScroll, GUILayout.ExpandHeight(true)))
+                {
+                    navigationScroll = navigationScope.scrollPosition;
+                for (int i = 0; i < database.categories.Count; i++)
+                {
+                    EventCategoryDefinition category = database.categories[i];
+                    if (category == null || category.events == null || !HasVisibleEvent(category)) continue;
+                    visibleCategories++;
+                    string categoryKey = category.categoryName ?? $"Category_{i}";
+                    if (!categoryFoldouts.ContainsKey(categoryKey)) categoryFoldouts[categoryKey] = true;
+                    using (new EditorGUILayout.VerticalScope("box"))
                     {
-                        if (e == null || !MatchesFilter(category, e))
-                            continue;
-
-                        EnsureParameterList(e);
-                        using (new EditorGUILayout.VerticalScope("helpbox"))
+                        using (new EditorGUILayout.HorizontalScope())
                         {
-                            using (new EditorGUILayout.HorizontalScope())
+                            categoryFoldouts[categoryKey] = EditorGUILayout.Foldout(categoryFoldouts[categoryKey], category.categoryName, true, EditorStyles.boldLabel);
+                            GUILayout.Label(GetVisibleEventCount(category).ToString(), EditorStyles.miniLabel, GUILayout.Width(22));
+                            if (GUILayout.Button("⋮", EditorStyles.miniButton, GUILayout.Width(22)))
                             {
-                                e.eventName = EditorGUILayout.TextField("Event", e.eventName);
-                                GUILayout.FlexibleSpace();
-                                if (GUILayout.Button("Delete", GUILayout.Width(70)))
-                                    eventsToDelete.Add((category, e));
+                                var menu = new GenericMenu();
+                                string capturedName = category.categoryName;
+                                menu.AddItem(new GUIContent("カテゴリを削除"), false, () =>
+                                {
+                                    if (EditorUtility.DisplayDialog("カテゴリ削除", $"「{capturedName}」と所属イベントを削除しますか？", "削除", "キャンセル"))
+                                    {
+                                        database.categories.RemoveAll(x => x != null && x.categoryName == capturedName);
+                                        if (selectedEventKey.StartsWith(capturedName + ".", StringComparison.Ordinal)) selectedEventKey = "";
+                                        EditorUtility.SetDirty(database);
+                                    }
+                                });
+                                menu.ShowAsContext();
                             }
-
-                            e.comment = EditorGUILayout.TextArea(e.comment ?? "", GUILayout.MinHeight(38));
-                            EditorGUILayout.LabelField("Comment", EditorStyles.miniLabel);
-                            EditorGUILayout.Space(3);
-                            EditorGUILayout.LabelField("Parameters", EditorStyles.boldLabel);
-
-                            for (int parameterIndex = 0; parameterIndex < e.parameters.Count; parameterIndex++)
+                        }
+                        if (categoryFoldouts[categoryKey])
+                        {
+                            foreach (EventDefinition e in category.events)
                             {
-                                EventParameterDefinition parameter = e.parameters[parameterIndex];
+                                if (e == null || !MatchesFilter(category, e)) continue;
+                                string key = category.categoryName + "." + e.eventName;
+                                bool selected = selectedEventKey == key;
                                 using (new EditorGUILayout.HorizontalScope())
                                 {
-                                    parameter.parameterName = EditorGUILayout.TextField(parameter.parameterName);
-                                    parameter.parameterType = (EventParameterType)EditorGUILayout.EnumPopup(
-                                        parameter.parameterType, GUILayout.Width(120));
-                                    if (GUILayout.Button("−", GUILayout.Width(25)))
+                                    GUIStyle rowStyle = new GUIStyle(selected ? EditorStyles.toolbarButton : EditorStyles.label)
+                                    { alignment = TextAnchor.MiddleLeft, stretchWidth = true, fixedHeight = 27f };
+                                    if (GUILayout.Button(new GUIContent("   " + (e.eventName ?? "(名称未設定)"), $"{e.parameters?.Count ?? 0} parameters"), rowStyle))
                                     {
-                                        e.parameters.RemoveAt(parameterIndex);
-                                        parameterIndex--;
+                                        selectedEventKey = key;
+                                        GUI.FocusControl(null);
+                                    }
+                                    GUILayout.Label((e.parameters?.Count ?? 0).ToString(), EditorStyles.miniLabel, GUILayout.Width(20));
+                                    if (GUILayout.Button("×", EditorStyles.miniButton, GUILayout.Width(22)))
+                                    {
+                                        if (EditorUtility.DisplayDialog("イベント削除", $"「{e.eventName}」を削除しますか？", "削除", "キャンセル"))
+                                            eventsToDelete.Add((category, e));
                                     }
                                 }
                             }
-
-                            using (new EditorGUILayout.HorizontalScope())
-                            {
-                                GUILayout.FlexibleSpace();
-                                if (GUILayout.Button("+ Add Parameter", GUILayout.Width(130)))
-                                {
-                                    e.parameters.Add(new EventParameterDefinition
-                                    {
-                                        parameterName = "parameter" + (e.parameters.Count + 1),
-                                        parameterType = EventParameterType.String
-                                    });
-                                }
-                            }
-
-                            // Keep the legacy field synchronized so intentionally removing the last
-                            // parameter does not cause the old single parameter to reappear.
-                            e.parameterType = e.parameters.Count == 1
-                                ? e.parameters[0].parameterType
-                                : EventParameterType.None;
                         }
                     }
-
-                    if (category.events.Count == 0)
-                        EditorGUILayout.LabelField("No Events", EditorStyles.miniLabel);
                 }
-                EditorGUILayout.Space(4);
+                }
+                foreach (var item in eventsToDelete)
+                {
+                    item.category.events.Remove(item.definition);
+                    if (selectedEventKey == item.category.categoryName + "." + item.definition.eventName) selectedEventKey = "";
+                    EditorUtility.SetDirty(database);
+                }
+                if (database.categories.Count == 0)
+                    EditorGUILayout.HelpBox("カテゴリがありません。「追加・作成」から作成してください。", MessageType.Info);
+                else if (visibleCategories == 0)
+                    EditorGUILayout.HelpBox("検索条件に一致するイベントがありません。検索語を変更してください。", MessageType.Info);
             }
+        }
 
-            // Apply mutations only after the layout scopes have closed.
-            foreach (var item in eventsToDelete)
-                item.category.events.Remove(item.definition);
+        private void DrawInspectorPane(params GUILayoutOption[] options)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, options))
+            {
+                EventCategoryDefinition selectedCategory = null;
+                EventDefinition selectedEvent = null;
+                foreach (var category in database.categories)
+                {
+                    if (category == null || category.events == null) continue;
+                    var found = category.events.FirstOrDefault(e => e != null && selectedEventKey == category.categoryName + "." + e.eventName);
+                    if (found != null) { selectedCategory = category; selectedEvent = found; break; }
+                }
 
-            if (!string.IsNullOrEmpty(categoryToDelete))
-                database.categories.RemoveAll(x => x != null && x.categoryName == categoryToDelete);
+                if (selectedEvent == null)
+                {
+                    EditorGUILayout.LabelField("イベント詳細", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    EditorGUILayout.HelpBox("編集するイベントを選択してください。\n\n左側の一覧からイベントを選ぶと、ここに詳細と引数が表示されます。", MessageType.Info);
+                    GUILayout.FlexibleSpace();
+                    return;
+                }
 
-            if (eventsToDelete.Count > 0 || !string.IsNullOrEmpty(categoryToDelete))
-                EditorUtility.SetDirty(database);
+                using (var inspectorScope = new EditorGUILayout.ScrollViewScope(inspectorScroll, GUILayout.ExpandHeight(true)))
+                {
+                inspectorScroll = inspectorScope.scrollPosition;
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("イベント詳細", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(selectedCategory.categoryName, EditorStyles.miniButton);
+                }
+                EditorGUILayout.LabelField("選択中のイベント", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField(selectedEvent.eventName, EditorStyles.largeLabel);
+                EditorGUILayout.Space(6);
+
+                EditorGUILayout.LabelField("基本情報", EditorStyles.boldLabel);
+                string oldName = selectedEvent.eventName ?? "";
+                string editedName = EditorGUILayout.TextField("イベント名", oldName);
+                if (editedName != oldName)
+                {
+                    selectedEvent.eventName = editedName;
+                    selectedEventKey = selectedCategory.categoryName + "." + editedName;
+                    EditorUtility.SetDirty(database);
+                }
+                EditorGUILayout.LabelField("カテゴリ", selectedCategory.categoryName);
+                EditorGUILayout.LabelField("説明 / コメント", EditorStyles.miniBoldLabel);
+                selectedEvent.comment = EditorGUILayout.TextArea(selectedEvent.comment ?? "", GUILayout.MinHeight(55), GUILayout.ExpandWidth(true));
+
+                EditorGUILayout.Space(10);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField("引数", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label($"{selectedEvent.parameters?.Count ?? 0} 個", EditorStyles.miniLabel);
+                }
+                EnsureParameterList(selectedEvent);
+                var removals = new List<int>();
+                for (int i = 0; i < selectedEvent.parameters.Count; i++)
+                {
+                    var parameter = selectedEvent.parameters[i];
+                    if (parameter == null) { removals.Add(i); continue; }
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                    {
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            GUILayout.Label($"{i + 1:00}", EditorStyles.miniBoldLabel, GUILayout.Width(28));
+                            parameter.parameterName = EditorGUILayout.TextField(parameter.parameterName ?? "", GUILayout.MinWidth(100), GUILayout.ExpandWidth(true));
+                            parameter.parameterType = (EventParameterType)EditorGUILayout.EnumPopup(parameter.parameterType, GUILayout.MinWidth(110), GUILayout.Width(145));
+                            if (GUILayout.Button("削除", GUILayout.Width(48))) removals.Add(i);
+                        }
+                    }
+                }
+                for (int i = removals.Count - 1; i >= 0; i--) selectedEvent.parameters.RemoveAt(removals[i]);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    if (GUILayout.Button("＋ 引数を追加", GUILayout.Width(120), GUILayout.Height(26)))
+                        selectedEvent.parameters.Add(new EventParameterDefinition { parameterName = CreateUniqueParameterName(selectedEvent), parameterType = EventParameterType.String });
+                }
+                selectedEvent.parameterType = selectedEvent.parameters.Count == 1 ? selectedEvent.parameters[0].parameterType : EventParameterType.None;
+                if (selectedEvent.parameters.Count == 0)
+                    EditorGUILayout.HelpBox("引数なしイベントです。", MessageType.None);
+                EditorGUILayout.Space(8);
+                EditorGUILayout.HelpBox("引数の順序は生成されるPayload型とEmitメソッドに反映されます。変更後は「保存して生成」を実行してください。", MessageType.None);
+                }
+                if (GUI.changed) EditorUtility.SetDirty(database);
+            }
+        }
+
+        private static string CreateUniqueParameterName(EventDefinition definition)
+        {
+            int suffix = 1;
+            string candidate;
+            do
+            {
+                candidate = "parameter" + suffix++;
+            }
+            while (definition.parameters.Any(x => x != null && string.Equals(x.parameterName, candidate, StringComparison.OrdinalIgnoreCase)));
+            return candidate;
+        }
+
+        private void EnsureDatabaseCollections()
+        {
+            if (database.categories == null)
+                database.categories = new List<EventCategoryDefinition>();
+            database.categories.RemoveAll(category => category == null);
+            foreach (EventCategoryDefinition category in database.categories)
+            {
+                if (category.events == null)
+                    category.events = new List<EventDefinition>();
+            }
         }
 
         private static void EnsureParameterList(EventDefinition definition)
@@ -339,12 +423,15 @@ namespace Uni7.Events
 
         private bool HasVisibleEvent(EventCategoryDefinition category)
         {
-            return string.IsNullOrWhiteSpace(searchQuery) ||
-                   GetVisibleEventCount(category) > 0;
+            if (category == null || category.events == null)
+                return false;
+            return string.IsNullOrWhiteSpace(searchQuery) || GetVisibleEventCount(category) > 0;
         }
 
         private int GetVisibleEventCount(EventCategoryDefinition category)
         {
+            if (category == null || category.events == null)
+                return 0;
             if (string.IsNullOrWhiteSpace(searchQuery))
                 return category.events.Count;
 
@@ -381,7 +468,7 @@ namespace Uni7.Events
                 return;
             }
 
-            if (database.categories.Any(x => x.categoryName == name))
+            if (database.categories.Any(x => x != null && string.Equals(x.categoryName, name, StringComparison.OrdinalIgnoreCase)))
             {
                 EditorUtility.DisplayDialog("Error", "同名カテゴリが存在します。", "OK");
                 return;
@@ -409,7 +496,7 @@ namespace Uni7.Events
 
             EventCategoryDefinition category = database.categories[categoryIndex];
 
-            if (category.events.Any(x => x.eventName == name))
+            if (category.events.Any(x => x != null && string.Equals(x.eventName, name, StringComparison.OrdinalIgnoreCase)))
             {
                 EditorUtility.DisplayDialog("Error", "同名イベントが存在します。", "OK");
                 return;
@@ -526,15 +613,23 @@ namespace Uni7.Events
 
         private string ValidateDefinitions()
         {
-            var categoryNames = new HashSet<string>(StringComparer.Ordinal);
+            if (database.categories == null)
+                return "カテゴリ一覧が初期化されていません。";
+            var categoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (EventCategoryDefinition category in database.categories)
             {
                 if (category == null || !IsValidIdentifier(category.categoryName))
                     return "カテゴリ名がC#の識別子として不正です。";
                 if (!categoryNames.Add(category.categoryName))
-                    return $"カテゴリ名が重複しています: {category.categoryName}";
+                    return $"カテゴリ名が重複しています（大文字・小文字の違いを含む）: {category.categoryName}";
+                if (string.Equals(category.categoryName, "Instance", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(category.categoryName, "Dispose", StringComparison.Ordinal) ||
+                    string.Equals(category.categoryName, "InitializeOnPlay", StringComparison.Ordinal))
+                    return $"カテゴリ名「{category.categoryName}」は生成される EventManager のメンバー名と衝突するため使用できません。";
 
-                var eventNames = new HashSet<string>(StringComparer.Ordinal);
+                if (category.events == null)
+                    return $"{category.categoryName} のイベント一覧が初期化されていません。";
+                var eventNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (EventDefinition definition in category.events)
                 {
                     if (definition == null || !IsValidIdentifier(definition.eventName))
@@ -550,8 +645,8 @@ namespace Uni7.Events
                             return $"{definition.eventName} に不正な引数名があります。";
                         if (!parameterNames.Add(parameter.parameterName))
                             return $"{definition.eventName} の引数名が重複しています: {parameter.parameterName}";
-                        if (parameter.parameterType == EventParameterType.None)
-                            return $"{definition.eventName}.{parameter.parameterName} の型に None は指定できません。";
+                        if (!Enum.IsDefined(typeof(EventParameterType), parameter.parameterType) || parameter.parameterType == EventParameterType.None)
+                            return $"{definition.eventName}.{parameter.parameterName} の型が不正です。None 以外の有効な型を指定してください。";
                     }
                 }
             }
@@ -804,7 +899,10 @@ namespace Uni7.Events
         }
 
         private static string GetPayloadTypeName(string categoryName, EventDefinition definition)
-            => categoryName + definition.eventName + "Payload";
+        {
+            // Length prefixes make the pair unambiguous: (AB, C) cannot collide with (A, BC).
+            return $"Uni7Payload_C{categoryName.Length}_{categoryName}_E{definition.eventName.Length}_{definition.eventName}";
+        }
 
         private static string ToPascalCase(string value)
         {
