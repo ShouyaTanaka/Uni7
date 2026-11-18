@@ -267,24 +267,83 @@ namespace Uni7.Diagnostics
             path = string.Empty;
             line = 0;
             tag = string.Empty;
-            if (string.IsNullOrEmpty(stackTrace)) return;
 
-            Match fileMatch = Regex.Match(stackTrace, @"(.*\.cs):(\d+)");
-            if (fileMatch.Success)
+            if (string.IsNullOrWhiteSpace(stackTrace))
+                return;
+
+            string[] lines = stackTrace.Split(
+                new[] { '\r', '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string stackLine in lines)
             {
-                path = fileMatch.Groups[1].Value.Trim();
-                int.TryParse(fileMatch.Groups[2].Value, out line);
+                // Unity形式: (at Assets/Scripts/Example.cs:22)
+                int atIndex = stackLine.LastIndexOf(
+                    "(at ",
+                    StringComparison.Ordinal);
+
+                if (atIndex >= 0)
+                {
+                    int endIndex = stackLine.LastIndexOf(')');
+
+                    if (endIndex > atIndex)
+                    {
+                        string location = stackLine.Substring(
+                            atIndex + 4,
+                            endIndex - (atIndex + 4)).Trim();
+
+                        int colonIndex = location.LastIndexOf(':');
+
+                        if (colonIndex > 0 &&
+                            int.TryParse(
+                                location.Substring(colonIndex + 1),
+                                out int parsedLine))
+                        {
+                            string parsedPath = location
+                                .Substring(0, colonIndex)
+                                .Trim();
+
+                            if (parsedPath.EndsWith(
+                                ".cs",
+                                StringComparison.OrdinalIgnoreCase))
+                            {
+                                path = parsedPath;
+                                line = parsedLine;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 補助形式: Assets/Scripts/Example.cs:22
+                Match match = Regex.Match(
+                    stackLine,
+                    @"(?<path>(?:[A-Za-z]:[\\/]|/|\./|\.\./|Assets[\\/]|Packages[\\/])[^()\r\n]*?\.cs):(?<line>\d+)",
+                    RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    path = match.Groups["path"].Value.Trim();
+                    int.TryParse(match.Groups["line"].Value, out line);
+                    break;
+                }
             }
 
-            string[] lines = stackTrace.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            // タグ取得
             if (lines.Length > 0)
             {
-                Match classMatch = Regex.Match(lines[0], @"(?:at\s+)?([\w`.+]+)\.[\w`<>]+");
+                Match classMatch = Regex.Match(
+                    lines[0],
+                    @"(?:at\s+)?([\w`.+]+)\.[\w`<>]+");
+
                 if (classMatch.Success)
                 {
                     string full = classMatch.Groups[1].Value;
                     int dot = full.LastIndexOf('.');
-                    tag = dot >= 0 ? full.Substring(dot + 1) : full;
+
+                    tag = dot >= 0
+                        ? full.Substring(dot + 1)
+                        : full;
                 }
             }
         }
