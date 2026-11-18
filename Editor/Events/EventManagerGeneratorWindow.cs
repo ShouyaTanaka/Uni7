@@ -431,7 +431,8 @@ namespace Uni7.Events
 
             EnsureFolder(GeneratedFolder);
             EnsureFolder(GeneratedCategoriesFolder);
-            EnsureUICategoryDefinitions();
+            if (IsUIModuleEnabled())
+                EnsureUICategoryDefinitions();
 
             // Preflight every output before writing anything. Never replace a user-authored file.
             List<string> outputPaths = database.categories
@@ -489,6 +490,17 @@ namespace Uni7.Events
         }
 
 
+        private static bool IsUIModuleEnabled()
+        {
+            BuildTargetGroup group = EditorUserBuildSettings.selectedBuildTargetGroup;
+            if (group == BuildTargetGroup.Unknown)
+                return false;
+
+            string symbols = PlayerSettings.GetScriptingDefineSymbolsForGroup(group);
+            return symbols.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Any(symbol => string.Equals(symbol.Trim(), "UNI7_UI", StringComparison.Ordinal));
+        }
+
         private void EnsureUICategoryDefinitions()
         {
             EventCategoryDefinition category = database.categories.FirstOrDefault(x => x.categoryName == "UI");
@@ -545,6 +557,7 @@ namespace Uni7.Events
 
             if (category.categoryName == "UI")
             {
+                sb.AppendLine("#if UNI7_UI");
                 sb.AppendLine("    private readonly Action<string> _hubOpenWindow;");
                 sb.AppendLine("    private readonly Action<string> _hubOpenModal;");
                 sb.AppendLine("    private readonly Action<string> _hubCloseUI;");
@@ -564,6 +577,7 @@ namespace Uni7.Events
                 sb.AppendLine("        Uni7.UI.UIEventHub.CloseTopModal += _hubCloseTopModal;");
                 sb.AppendLine("        Uni7.UI.UIEventHub.CloseAll += _hubCloseAll;");
                 sb.AppendLine("    }");
+                sb.AppendLine("#endif");
             }
 
             sb.AppendLine();
@@ -577,11 +591,13 @@ namespace Uni7.Events
             sb.AppendLine("    {");
             if (category.categoryName == "UI")
             {
+                sb.AppendLine("#if UNI7_UI");
                 sb.AppendLine("        Uni7.UI.UIEventHub.OpenWindow -= _hubOpenWindow;");
                 sb.AppendLine("        Uni7.UI.UIEventHub.OpenModal -= _hubOpenModal;");
                 sb.AppendLine("        Uni7.UI.UIEventHub.CloseUI -= _hubCloseUI;");
                 sb.AppendLine("        Uni7.UI.UIEventHub.CloseTopModal -= _hubCloseTopModal;");
                 sb.AppendLine("        Uni7.UI.UIEventHub.CloseAll -= _hubCloseAll;");
+                sb.AppendLine("#endif");
             }
 
             foreach (EventDefinition e in category.events)
@@ -621,8 +637,22 @@ namespace Uni7.Events
 
                 sb.AppendLine($"    public void Emit{e.eventName}()");
                 sb.AppendLine("    {");
-                if (categoryName == "UI" && e.eventName == "CloseTopModal") sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseTopModal();");
-                else if (categoryName == "UI" && e.eventName == "CloseAll") sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseAll();");
+                if (categoryName == "UI" && e.eventName == "CloseTopModal")
+                {
+                    sb.AppendLine("#if UNI7_UI");
+                    sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseTopModal();");
+                    sb.AppendLine("#else");
+                    sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
+                    sb.AppendLine("#endif");
+                }
+                else if (categoryName == "UI" && e.eventName == "CloseAll")
+                {
+                    sb.AppendLine("#if UNI7_UI");
+                    sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseAll();");
+                    sb.AppendLine("#else");
+                    sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
+                    sb.AppendLine("#endif");
+                }
                 else sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
                 sb.AppendLine("    }");
                 sb.AppendLine();
@@ -643,9 +673,16 @@ namespace Uni7.Events
 
                 sb.AppendLine($"    public void Emit{e.eventName}({type} value)");
                 sb.AppendLine("    {");
-                if (categoryName == "UI" && e.eventName == "OpenWindow") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenWindow(value);");
-                else if (categoryName == "UI" && e.eventName == "OpenModal") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenModal(value);");
-                else if (categoryName == "UI" && e.eventName == "CloseUI") sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseUI(value);");
+                if (categoryName == "UI" && (e.eventName == "OpenWindow" || e.eventName == "OpenModal" || e.eventName == "CloseUI"))
+                {
+                    sb.AppendLine("#if UNI7_UI");
+                    if (e.eventName == "OpenWindow") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenWindow(value);");
+                    else if (e.eventName == "OpenModal") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenModal(value);");
+                    else sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseUI(value);");
+                    sb.AppendLine("#else");
+                    sb.AppendLine($"        _{e.eventName}.OnNext(value);");
+                    sb.AppendLine("#endif");
+                }
                 else sb.AppendLine($"        _{e.eventName}.OnNext(value);");
                 sb.AppendLine("    }");
                 sb.AppendLine();

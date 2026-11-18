@@ -1,0 +1,23 @@
+{
+    "name": "Uni7.UI.Editor",
+    "rootNamespace": "Uni7.Editor.UI",
+    "references": [
+        "Uni7.Runtime",
+        "Uni7.UI",
+        "Unity.Addressables",
+        "Unity.Addressables.Editor",
+        "Unity.ResourceManager",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNI7_UI"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

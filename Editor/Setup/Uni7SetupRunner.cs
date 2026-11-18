@@ -35,6 +35,7 @@ namespace Uni7.Editor.Setup
         private static Action<string> onProgress;
         private static Action<bool, string> onCompleted;
         private static bool isRunning;
+        private const string UIModuleSymbol = "UNI7_UI";
 
         private readonly struct PackageDefinition
         {
@@ -165,9 +166,89 @@ namespace Uni7.Editor.Setup
             return createdCount;
         }
 
-        public static void InstallDependencies(
+        public static bool IsUIModuleEnabled => HasDefineSymbol(UIModuleSymbol);
+
+        public static string GetAdditionalDefineSymbols()
+        {
+            List<string> symbols = GetCurrentDefineSymbols();
+            symbols.RemoveAll(symbol => string.Equals(symbol, UIModuleSymbol, StringComparison.Ordinal));
+            return string.Join(";", symbols);
+        }
+
+        public static bool ApplyAdditionalDefineSymbols(string input, out string message)
+        {
+            List<string> symbols = ParseSymbols(input);
+            symbols.RemoveAll(symbol => string.Equals(symbol, UIModuleSymbol, StringComparison.Ordinal));
+
+            if (HasDefineSymbol(UIModuleSymbol))
+                symbols.Add(UIModuleSymbol);
+
+            return WriteCurrentDefineSymbols(symbols, out message);
+        }
+
+        public static bool DisableUIModule(out string message)
+        {
+            List<string> symbols = GetCurrentDefineSymbols();
+            symbols.RemoveAll(symbol => string.Equals(symbol, UIModuleSymbol, StringComparison.Ordinal));
+            return WriteCurrentDefineSymbols(symbols, out message);
+        }
+
+        public static void InstallDependencies(Action<string> progress, Action<bool, string> completed)
+        {
+            StartPackageInstallation(
+                new[]
+                {
+                    new PackageDefinition(PackageInfoConst.UniTaskName, PackageInfoConst.UniTaskGit),
+                    new PackageDefinition(PackageInfoConst.UniRxName, PackageInfoConst.UniRxGit)
+                },
+                progress,
+                completed,
+                "Core Event Manager dependencies");
+        }
+
+        public static void EnableUIModule(Action<string> progress, Action<bool, string> completed)
+        {
+            if (EditorUserBuildSettings.selectedBuildTargetGroup == BuildTargetGroup.Unknown)
+            {
+                completed?.Invoke(false, "Build Targetが不明です。先にBuild Targetを選択してください。");
+                return;
+            }
+
+            StartPackageInstallation(
+                new[]
+                {
+                    new PackageDefinition(PackageInfoConst.UniTaskName, PackageInfoConst.UniTaskGit),
+                    new PackageDefinition(PackageInfoConst.UniRxName, PackageInfoConst.UniRxGit),
+                    new PackageDefinition(PackageInfoConst.AddressablesName, PackageInfoConst.AddressablesGit)
+                },
+                progress,
+                (success, packageMessage) =>
+                {
+                    if (!success)
+                    {
+                        completed?.Invoke(false, packageMessage);
+                        return;
+                    }
+
+                    List<string> symbols = GetCurrentDefineSymbols();
+                    if (!symbols.Contains(UIModuleSymbol))
+                        symbols.Add(UIModuleSymbol);
+
+                    if (!WriteCurrentDefineSymbols(symbols, out string symbolMessage))
+                    {
+                        completed?.Invoke(false, packageMessage + "\n" + symbolMessage);
+                        return;
+                    }
+
+                    completed?.Invoke(true, packageMessage + "\nUI Moduleを有効化しました。Unityの再コンパイル後に利用できます。");
+                });
+        }
+
+        private static void StartPackageInstallation(
+            IEnumerable<PackageDefinition> packages,
             Action<string> progress,
-            Action<bool, string> completed)
+            Action<bool, string> completed,
+            string operationName = "Package setup")
         {
             if (isRunning)
             {
@@ -180,16 +261,65 @@ namespace Uni7.Editor.Setup
             onCompleted = completed;
 
             installQueue.Clear();
-            installQueue.Enqueue(new PackageDefinition(
-                PackageInfoConst.UniTaskName, PackageInfoConst.UniTaskGit));
-            installQueue.Enqueue(new PackageDefinition(
-                PackageInfoConst.UniRxName, PackageInfoConst.UniRxGit));
-            installQueue.Enqueue(new PackageDefinition(
-                PackageInfoConst.AddressablesName, PackageInfoConst.AddressablesGit));
+            foreach (PackageDefinition package in packages)
+                installQueue.Enqueue(package);
 
-            onProgress?.Invoke("インストール済みPackageを確認しています...");
+            onProgress?.Invoke(operationName + "：インストール済みPackageを確認しています...");
             listRequest = Client.List(true, true);
             EditorApplication.update += UpdatePackageInstallation;
+        }
+
+        private static bool HasDefineSymbol(string symbol)
+        {
+            return GetCurrentDefineSymbols().Contains(symbol);
+        }
+
+        private static List<string> GetCurrentDefineSymbols()
+        {
+            BuildTargetGroup group = EditorUserBuildSettings.selectedBuildTargetGroup;
+            if (group == BuildTargetGroup.Unknown)
+                return new List<string>();
+
+            string raw = PlayerSettings.GetScriptingDefineSymbolsForGroup(group);
+            return ParseSymbols(raw);
+        }
+
+        private static List<string> ParseSymbols(string raw)
+        {
+            List<string> result = new List<string>();
+            if (string.IsNullOrWhiteSpace(raw))
+                return result;
+
+            string[] parts = raw.Split(new[] { ';', ',', '\n', '\r', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string part in parts)
+            {
+                string symbol = part.Trim();
+                if (!string.IsNullOrEmpty(symbol) && !result.Contains(symbol))
+                    result.Add(symbol);
+            }
+            return result;
+        }
+
+        private static bool WriteCurrentDefineSymbols(List<string> symbols, out string message)
+        {
+            BuildTargetGroup group = EditorUserBuildSettings.selectedBuildTargetGroup;
+            if (group == BuildTargetGroup.Unknown)
+            {
+                message = "現在のBuild Targetが不明なため、Define Symbolsを変更できません。Build Targetを選択してください。";
+                return false;
+            }
+
+            try
+            {
+                PlayerSettings.SetScriptingDefineSymbolsForGroup(group, string.Join(";", symbols));
+                message = "Scripting Define Symbolsを更新しました（" + group + "）。Unityの再コンパイルを待ってください。";
+                return true;
+            }
+            catch (Exception exception)
+            {
+                message = "Scripting Define Symbolsの更新に失敗しました。\n" + exception.Message;
+                return false;
+            }
         }
 
         private static void UpdatePackageInstallation()

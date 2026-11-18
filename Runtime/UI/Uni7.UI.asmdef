@@ -1,0 +1,21 @@
+{
+    "name": "Uni7.UI",
+    "rootNamespace": "Uni7.UI",
+    "references": [
+        "Uni7.Runtime",
+        "UniTask",
+        "Unity.Addressables",
+        "Unity.ResourceManager",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNI7_UI"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

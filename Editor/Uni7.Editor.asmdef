@@ -2,11 +2,7 @@
     "name": "Uni7.Editor",
     "rootNamespace": "Uni7",
     "references": [
-        "Uni7.Runtime",
-        "Unity.Addressables",
-        "Unity.Addressables.Editor",
-        "Unity.ResourceManager",
-        "Unity.ugui"
+        "Uni7.Runtime"
     ],
     "includePlatforms": [
         "Editor"

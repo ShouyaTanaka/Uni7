@@ -12,6 +12,19 @@ namespace Uni7.Editor.Setup
         private string statusMessage = "セットアップを開始できます。";
         private MessageType statusType = MessageType.Info;
         private bool isInstalling;
+        private string additionalDefineSymbols = string.Empty;
+        private BuildTargetGroup loadedSymbolTarget;
+
+        private void OnEnable()
+        {
+            RefreshSymbolsForCurrentTarget();
+        }
+
+        private void RefreshSymbolsForCurrentTarget()
+        {
+            loadedSymbolTarget = EditorUserBuildSettings.selectedBuildTargetGroup;
+            additionalDefineSymbols = Uni7SetupRunner.GetAdditionalDefineSymbols();
+        }
 
         [MenuItem("Tools/Uni7/Setup Manager")]
         public static void Open()
@@ -21,6 +34,9 @@ namespace Uni7.Editor.Setup
 
         private void OnGUI()
         {
+            if (loadedSymbolTarget != EditorUserBuildSettings.selectedBuildTargetGroup)
+                RefreshSymbolsForCurrentTarget();
+
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("Uni7 Setup Manager", EditorStyles.largeLabel);
             EditorGUILayout.LabelField(
@@ -51,7 +67,7 @@ namespace Uni7.Editor.Setup
 
                 EditorGUILayout.Space(8);
                 EditorGUILayout.LabelField("External Packages", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("UniTask / UniRx / Addressables");
+                EditorGUILayout.LabelField("Core Event Manager: UniTask / UniRx");
 
                 if (GUILayout.Button("Check & Install Dependencies", GUILayout.Height(30)))
                 {
@@ -72,16 +88,22 @@ namespace Uni7.Editor.Setup
                         });
                 }
 
+                EditorGUILayout.Space(12);
+                DrawModuleSection();
+
                 EditorGUILayout.Space(10);
-                EditorGUILayout.LabelField("Addressables", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("UI Module - Addressables", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(
-                    "Addressables導入後にSettingsを確認します。未作成の場合だけUnity標準のSettingsを生成します。既存Settingsは上書きしません。",
+                    "UI Moduleを有効化した後、Addressables Settingsを確認します。未作成の場合だけUnity標準のSettingsを生成し、既存Settingsは上書きしません。",
                     MessageType.Info);
 
-                if (GUILayout.Button("Check / Create Addressables Settings", GUILayout.Height(30)))
+                using (new EditorGUI.DisabledScope(!Uni7SetupRunner.IsUIModuleEnabled || isInstalling || EditorApplication.isCompiling || EditorApplication.isUpdating))
                 {
-                    bool success = Uni7SetupRunner.EnsureAddressablesSettings(out string message);
-                    SetStatus(message, success ? MessageType.Info : MessageType.Warning);
+                    if (GUILayout.Button("Check / Create Addressables Settings", GUILayout.Height(30)))
+                    {
+                        bool success = Uni7SetupRunner.EnsureAddressablesSettings(out string message);
+                        SetStatus(message, success ? MessageType.Info : MessageType.Warning);
+                    }
                 }
 
                 EditorGUILayout.Space(8);
@@ -90,7 +112,7 @@ namespace Uni7.Editor.Setup
                     int created = Uni7SetupRunner.CreateProjectFolders();
                     isInstalling = true;
                     SetStatus(
-                        "フォルダを確認しました（新規作成: " + created + "）。Packageを確認しています...",
+                        "フォルダを確認しました（新規作成: " + created + "）。Core Event Manager用Packageを確認しています...",
                         MessageType.Info);
 
                     Uni7SetupRunner.InstallDependencies(
@@ -119,6 +141,78 @@ namespace Uni7.Editor.Setup
             EditorGUILayout.LabelField(
                 "既存フォルダや既存ファイルは削除・上書きしません。",
                 EditorStyles.miniLabel);
+        }
+
+        private void DrawModuleSection()
+        {
+            EditorGUILayout.LabelField("Optional Modules", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "UIは任意モジュールです。有効化すると必要Packageを確認・導入した後、選択中のBuild TargetにUNI7_UIを追加します。無効化してもPackageや既存アセットは削除しません。",
+                MessageType.Info);
+
+            bool uiEnabled = Uni7SetupRunner.IsUIModuleEnabled;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("UI Module", EditorStyles.boldLabel);
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.LabelField(uiEnabled ? "Enabled" : "Disabled", GUILayout.Width(65));
+            }
+
+            using (new EditorGUI.DisabledScope(isInstalling || EditorApplication.isCompiling || EditorApplication.isUpdating))
+            {
+                if (!uiEnabled)
+                {
+                    if (GUILayout.Button("Enable UI Module (install requirements)", GUILayout.Height(30)))
+                    {
+                        isInstalling = true;
+                        SetStatus("UI Moduleの依存Packageを確認しています...", MessageType.Info);
+                        Uni7SetupRunner.EnableUIModule(
+                            message => { statusMessage = message; Repaint(); },
+                            (success, message) =>
+                            {
+                                isInstalling = false;
+                                SetStatus(message, success ? MessageType.Info : MessageType.Error);
+                                Repaint();
+                            });
+                    }
+                }
+                else if (GUILayout.Button("Disable UI Module", GUILayout.Height(30)))
+                {
+                    if (EditorUtility.DisplayDialog(
+                        "Disable UI Module",
+                        "UNI7_UIを選択中のBuild Targetから削除します。UI関連Packageや既存ファイルは削除しません。Uni7.UI型を直接参照しているユーザースクリプトは、無効化後にコンパイルエラーになるため別途条件付きコンパイルしてください。続行しますか？",
+                        "Disable", "Cancel"))
+                    {
+                        if (Uni7SetupRunner.DisableUIModule(out string message))
+                            SetStatus(message, MessageType.Info);
+                        else
+                            SetStatus(message, MessageType.Error);
+                    }
+                }
+            }
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("Additional Scripting Define Symbols", EditorStyles.boldLabel);
+            additionalDefineSymbols = EditorGUILayout.TextField(
+                new GUIContent("Symbols", "セミコロン、カンマ、空白区切りで入力できます。UNI7_UIはモジュールスイッチで管理します。"),
+                additionalDefineSymbols);
+            EditorGUILayout.LabelField("Target: " + EditorUserBuildSettings.selectedBuildTargetGroup + " (selected target only)", EditorStyles.miniLabel);
+            using (new EditorGUI.DisabledScope(isInstalling || EditorApplication.isCompiling || EditorApplication.isUpdating))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Apply Additional Symbols"))
+                    {
+                        if (Uni7SetupRunner.ApplyAdditionalDefineSymbols(additionalDefineSymbols, out string message))
+                            SetStatus(message, MessageType.Info);
+                        else
+                            SetStatus(message, MessageType.Error);
+                    }
+
+                    if (GUILayout.Button("Reload", GUILayout.Width(70)))
+                        RefreshSymbolsForCurrentTarget();
+                }
+            }
         }
 
         private void SetStatus(string message, MessageType type)

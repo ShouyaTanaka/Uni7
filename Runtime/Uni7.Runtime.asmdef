@@ -1,13 +1,7 @@
 {
     "name": "Uni7.Runtime",
     "rootNamespace": "",
-    "references": [
-        "UniTask",
-        "UniRx",
-        "Unity.Addressables",
-        "Unity.ResourceManager",
-        "Unity.ugui"
-    ],
+    "references": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "autoReferenced": true,
