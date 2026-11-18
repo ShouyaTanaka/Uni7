@@ -339,8 +339,24 @@ namespace Uni7.Diagnostics
                 }
                 if (!string.IsNullOrEmpty(entry.FilePath))
                 {
-                    if (GUILayout.Button(Path.GetFileName(entry.FilePath) + ":" + entry.LineNumber, EditorStyles.linkLabel))
+                    string fileName;
+
+                    try
+                    {
+                        fileName = Path.GetFileName(
+                            (entry.FilePath ?? string.Empty).Replace("\\", "/"));
+                    }
+                    catch (ArgumentException)
+                    {
+                        fileName = "Invalid source path";
+                    }
+
+                    if (GUILayout.Button(
+                        fileName + ":" + entry.LineNumber,
+                        EditorStyles.linkLabel))
+                    {
                         OpenScriptAtLine(entry);
+                    }
                 }
                 EditorGUILayout.LabelField("Stack Trace", EditorStyles.boldLabel);
                 EditorGUILayout.SelectableLabel(entry.StackTrace ?? string.Empty, EditorStyles.textArea,
