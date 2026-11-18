@@ -31,6 +31,8 @@ namespace Uni7.Diagnostics
         private Texture2D logIcon;
         private Texture2D warningIcon;
         private Texture2D errorIcon;
+        private readonly UTLogContentViewer messageViewer = new UTLogContentViewer();
+        private readonly UTLogContentViewer stackTraceViewer = new UTLogContentViewer();
         private const float SplitterWidth = 5f;
 
         [MenuItem("Tools/Uni7/Diagnostics/Console")]
@@ -86,10 +88,16 @@ namespace Uni7.Diagnostics
                 EditorGUILayout.HelpBox("Paused: log collection continues; only this window's repaint is paused.", MessageType.Info);
 
             EditorGUILayout.BeginHorizontal();
-            DrawLogList();
-            if (showDetails) DrawSplitter();
-            if (showDetails) DrawDetails();
-            EditorGUILayout.EndHorizontal();
+            try
+            {
+                DrawLogList();
+                if (showDetails) DrawSplitter();
+                if (showDetails) DrawDetails();
+            }
+            finally
+            {
+                EditorGUILayout.EndHorizontal();
+            }
 
             DrawStatusBar();
             HandleKeyboard();
@@ -308,68 +316,68 @@ namespace Uni7.Diagnostics
         {
             float width = Mathf.Max(170f, position.width * detailWidth);
             EditorGUILayout.BeginVertical(GUILayout.Width(width), GUILayout.ExpandHeight(true));
-            List<LogEntry> selected = UTLog.GetAllLogs().Where(x => selectedIds.Contains(x.Id)).ToList();
-
-            if (selected.Count == 0)
+            try
             {
-                GUILayout.FlexibleSpace();
-                EditorGUILayout.LabelField("ログを選択すると詳細を表示します", EditorStyles.centeredGreyMiniLabel);
-                GUILayout.FlexibleSpace();
-            }
-            else if (selected.Count > 1)
-            {
-                EditorGUILayout.LabelField("複数選択", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField(selected.Count + " logs selected");
-                GUILayout.Space(8);
-                if (GUILayout.Button("Copy Selected")) CopySelected();
-                if (GUILayout.Button("Delete Selected")) DeleteSelected();
-                if (GUILayout.Button("Clear Selection")) selectedIds.Clear();
-            }
-            else
-            {
-                LogEntry entry = selected[0];
-                detailScroll = EditorGUILayout.BeginScrollView(detailScroll);
-                EditorGUILayout.LabelField(entry.Type.ToString(), EditorStyles.boldLabel);
-                DrawDetailField("Time", entry.Time);
-                DrawDetailField("Tag", entry.Tag);
-                DrawDetailField("Message", entry.Message);
-                if (entry.Context != null)
+                List<LogEntry> selected = UTLog.GetAllLogs().Where(x => selectedIds.Contains(x.Id)).ToList();
+                if (selected.Count == 0)
                 {
-                    EditorGUILayout.ObjectField("Context", entry.Context, typeof(UnityEngine.Object), true);
+                    GUILayout.FlexibleSpace();
+                    EditorGUILayout.LabelField("ログを選択すると詳細を表示します", EditorStyles.centeredGreyMiniLabel);
+                    GUILayout.FlexibleSpace();
                 }
-                if (!string.IsNullOrEmpty(entry.FilePath))
+                else if (selected.Count > 1)
                 {
-                    string fileName;
-
+                    EditorGUILayout.LabelField("複数選択", EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField(selected.Count + " logs selected");
+                    GUILayout.Space(8);
+                    if (GUILayout.Button("Copy Selected")) CopySelected();
+                    if (GUILayout.Button("Delete Selected")) DeleteSelected();
+                    if (GUILayout.Button("Clear Selection")) selectedIds.Clear();
+                }
+                else
+                {
+                    LogEntry entry = selected[0];
+                    detailScroll = EditorGUILayout.BeginScrollView(detailScroll);
                     try
                     {
-                        fileName = Path.GetFileName(
-                            (entry.FilePath ?? string.Empty).Replace("\\", "/"));
-                    }
-                    catch (ArgumentException)
-                    {
-                        fileName = "Invalid source path";
-                    }
+                        EditorGUILayout.LabelField(entry.Type.ToString(), EditorStyles.boldLabel);
+                        DrawDetailField("Time", entry.Time);
+                        DrawDetailField("Tag", entry.Tag);
+                        if (entry.Context != null)
+                            EditorGUILayout.ObjectField("Context", entry.Context, typeof(UnityEngine.Object), true);
 
-                    if (GUILayout.Button(
-                        fileName + ":" + entry.LineNumber,
-                        EditorStyles.linkLabel))
+                        if (!string.IsNullOrEmpty(entry.FilePath))
+                        {
+                            string fileName = SafeFileName(entry.FilePath);
+                            if (GUILayout.Button(fileName + ":" + entry.LineNumber, EditorStyles.linkLabel))
+                                OpenScriptAtLine(entry);
+                        }
+
+                        GUILayout.Space(6);
+                        messageViewer.Draw(entry.Message, "Message / Data");
+                        if (!string.IsNullOrEmpty(entry.StackTrace))
+                        {
+                            GUILayout.Space(8);
+                            stackTraceViewer.Draw(entry.StackTrace, "Stack Trace");
+                        }
+                    }
+                    finally
                     {
-                        OpenScriptAtLine(entry);
+                        EditorGUILayout.EndScrollView();
                     }
                 }
-                EditorGUILayout.LabelField("Stack Trace", EditorStyles.boldLabel);
-                EditorGUILayout.SelectableLabel(entry.StackTrace ?? string.Empty, EditorStyles.textArea,
-                    GUILayout.MinHeight(100), GUILayout.ExpandHeight(true));
-                EditorGUILayout.EndScrollView();
             }
-            EditorGUILayout.EndVertical();
+            finally
+            {
+                EditorGUILayout.EndVertical();
+            }
         }
 
-        private static void DrawDetailField(string label, string value)
+        private static string SafeFileName(string path)
         {
-            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
-            EditorGUILayout.SelectableLabel(value ?? string.Empty, EditorStyles.textArea, GUILayout.MinHeight(label == "Message" ? 60 : 20));
+            if (string.IsNullOrEmpty(path)) return "Unknown source";
+            try { return Path.GetFileName(path.Replace("\\", "/")); }
+            catch (ArgumentException) { return "Invalid source path"; }
         }
 
         private void DrawStatusBar()
@@ -498,16 +506,23 @@ namespace Uni7.Diagnostics
             if (entry == null || string.IsNullOrEmpty(entry.FilePath) || entry.LineNumber <= 0)
                 return;
 
-            string path = entry.FilePath.Replace("\\", "/");
-            string dataPath = Application.dataPath.Replace("\\", "/");
-            if (Path.IsPathRooted(path) && path.StartsWith(dataPath, StringComparison.OrdinalIgnoreCase))
-                path = "Assets" + path.Substring(dataPath.Length);
+            try
+            {
+                string path = entry.FilePath.Replace("\\", "/").Trim();
+                string dataPath = Application.dataPath.Replace("\\", "/").TrimEnd('/');
+                if (Path.IsPathRooted(path) && path.StartsWith(dataPath, StringComparison.OrdinalIgnoreCase))
+                    path = "Assets" + path.Substring(dataPath.Length);
 
-            UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
-            if (asset != null)
-                AssetDatabase.OpenAsset(asset, entry.LineNumber);
-            else
-                Debug.LogWarning("Uni7 Diagnostics: source file could not be resolved: " + entry.FilePath);
+                UnityEngine.Object asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+                if (asset != null)
+                    AssetDatabase.OpenAsset(asset, entry.LineNumber);
+                else
+                    Debug.LogWarning("Uni7 Diagnostics: source file could not be resolved: " + entry.FilePath);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Uni7 Diagnostics: invalid source path: " + exception.Message);
+            }
         }
 
         private int Count(LogType type)
