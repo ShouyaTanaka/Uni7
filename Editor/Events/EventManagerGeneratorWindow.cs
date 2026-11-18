@@ -75,9 +75,11 @@ namespace Uni7.Events
                     EditorStyles.miniLabel);
             }
 
-            scroll = EditorGUILayout.BeginScrollView(scroll);
-            DrawEventList();
-            EditorGUILayout.EndScrollView();
+            using (var scrollScope = new EditorGUILayout.ScrollViewScope(scroll))
+            {
+                DrawEventList();
+                scroll = scrollScope.scrollPosition;
+            }
 
             EditorGUILayout.Space(6);
             DrawActionBar();
@@ -120,14 +122,13 @@ namespace Uni7.Events
 
         private void DrawAddSection()
         {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Add Event Definition", EditorStyles.boldLabel);
-
-            DrawAddCategory();
-            EditorGUILayout.Space(4);
-            DrawAddEvent();
-
-            EditorGUILayout.EndVertical();
+            using (new EditorGUILayout.VerticalScope("box"))
+            {
+                EditorGUILayout.LabelField("Add Event Definition", EditorStyles.boldLabel);
+                DrawAddCategory();
+                EditorGUILayout.Space(4);
+                DrawAddEvent();
+            }
         }
 
         private void DrawActionBar()
@@ -211,97 +212,128 @@ namespace Uni7.Events
 
         private void DrawEventList()
         {
+            string categoryToDelete = null;
+            var eventsToDelete = new List<(EventCategoryDefinition category, EventDefinition definition)>();
+
             for (int categoryIndex = 0; categoryIndex < database.categories.Count; categoryIndex++)
             {
                 EventCategoryDefinition category = database.categories[categoryIndex];
-
-                if (!HasVisibleEvent(category))
+                if (category == null || !HasVisibleEvent(category))
                     continue;
 
                 if (!categoryFoldouts.ContainsKey(category.categoryName))
                     categoryFoldouts[category.categoryName] = true;
 
-                EditorGUILayout.BeginVertical("box");
-
-                using (new EditorGUILayout.HorizontalScope())
+                using (new EditorGUILayout.VerticalScope("box"))
                 {
-                    categoryFoldouts[category.categoryName] =
-                        EditorGUILayout.Foldout(
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        categoryFoldouts[category.categoryName] = EditorGUILayout.Foldout(
                             categoryFoldouts[category.categoryName],
                             $"{category.categoryName}  ({GetVisibleEventCount(category)}/{category.events.Count})",
                             true,
                             EditorStyles.boldLabel);
 
-                    GUILayout.FlexibleSpace();
-
-                    if (GUILayout.Button("Delete Category", GUILayout.Width(120)))
-                    {
-                        if (EditorUtility.DisplayDialog(
-                            "Delete Category",
-                            $"「{category.categoryName}」を削除しますか？",
-                            "Delete",
-                            "Cancel"))
+                        GUILayout.FlexibleSpace();
+                        if (GUILayout.Button("Delete Category", GUILayout.Width(120)) &&
+                            EditorUtility.DisplayDialog("Delete Category",
+                                $"「{category.categoryName}」を削除しますか？", "Delete", "Cancel"))
                         {
-                            database.categories.RemoveAt(categoryIndex);
-                            EditorUtility.SetDirty(database);
-                            EditorGUILayout.EndVertical();
-                            break;
+                            categoryToDelete = category.categoryName;
                         }
                     }
-                }
 
-                if (categoryFoldouts[category.categoryName])
-                {
-                    for (int i = 0; i < category.events.Count; i++)
+                    if (!categoryFoldouts[category.categoryName])
+                        continue;
+
+                    foreach (EventDefinition e in category.events)
                     {
-                        EventDefinition e = category.events[i];
-
-                        if (!MatchesFilter(category, e))
+                        if (e == null || !MatchesFilter(category, e))
                             continue;
 
-                        EditorGUILayout.BeginVertical("helpbox");
-
-                        using (new EditorGUILayout.HorizontalScope())
+                        EnsureParameterList(e);
+                        using (new EditorGUILayout.VerticalScope("helpbox"))
                         {
-                            e.eventName = EditorGUILayout.TextField("Event", e.eventName);
-
-                            e.parameterType =
-                                (EventParameterType)EditorGUILayout.EnumPopup(
-                                    e.parameterType,
-                                    GUILayout.Width(110));
-
-                            if (GUILayout.Button("Delete", GUILayout.Width(70)))
+                            using (new EditorGUILayout.HorizontalScope())
                             {
-                                category.events.RemoveAt(i);
-                                EditorUtility.SetDirty(database);
-                                EditorGUILayout.EndHorizontal();
-                                EditorGUILayout.EndVertical();
-                                break;
+                                e.eventName = EditorGUILayout.TextField("Event", e.eventName);
+                                GUILayout.FlexibleSpace();
+                                if (GUILayout.Button("Delete", GUILayout.Width(70)))
+                                    eventsToDelete.Add((category, e));
                             }
+
+                            e.comment = EditorGUILayout.TextArea(e.comment ?? "", GUILayout.MinHeight(38));
+                            EditorGUILayout.LabelField("Comment", EditorStyles.miniLabel);
+                            EditorGUILayout.Space(3);
+                            EditorGUILayout.LabelField("Parameters", EditorStyles.boldLabel);
+
+                            for (int parameterIndex = 0; parameterIndex < e.parameters.Count; parameterIndex++)
+                            {
+                                EventParameterDefinition parameter = e.parameters[parameterIndex];
+                                using (new EditorGUILayout.HorizontalScope())
+                                {
+                                    parameter.parameterName = EditorGUILayout.TextField(parameter.parameterName);
+                                    parameter.parameterType = (EventParameterType)EditorGUILayout.EnumPopup(
+                                        parameter.parameterType, GUILayout.Width(120));
+                                    if (GUILayout.Button("−", GUILayout.Width(25)))
+                                    {
+                                        e.parameters.RemoveAt(parameterIndex);
+                                        parameterIndex--;
+                                    }
+                                }
+                            }
+
+                            using (new EditorGUILayout.HorizontalScope())
+                            {
+                                GUILayout.FlexibleSpace();
+                                if (GUILayout.Button("+ Add Parameter", GUILayout.Width(130)))
+                                {
+                                    e.parameters.Add(new EventParameterDefinition
+                                    {
+                                        parameterName = "parameter" + (e.parameters.Count + 1),
+                                        parameterType = EventParameterType.String
+                                    });
+                                }
+                            }
+
+                            // Keep the legacy field synchronized so intentionally removing the last
+                            // parameter does not cause the old single parameter to reappear.
+                            e.parameterType = e.parameters.Count == 1
+                                ? e.parameters[0].parameterType
+                                : EventParameterType.None;
                         }
-
-                        e.comment = EditorGUILayout.TextArea(
-                            e.comment ?? "",
-                            GUILayout.MinHeight(45));
-
-                        EditorGUILayout.LabelField(
-                            "Comment",
-                            EditorStyles.miniLabel);
-
-                        EditorGUILayout.EndVertical();
-                        EditorGUILayout.Space(2);
                     }
 
                     if (category.events.Count == 0)
-                    {
-                        EditorGUILayout.LabelField(
-                            "No Events",
-                            EditorStyles.miniLabel);
-                    }
+                        EditorGUILayout.LabelField("No Events", EditorStyles.miniLabel);
                 }
-
-                EditorGUILayout.EndVertical();
                 EditorGUILayout.Space(4);
+            }
+
+            // Apply mutations only after the layout scopes have closed.
+            foreach (var item in eventsToDelete)
+                item.category.events.Remove(item.definition);
+
+            if (!string.IsNullOrEmpty(categoryToDelete))
+                database.categories.RemoveAll(x => x != null && x.categoryName == categoryToDelete);
+
+            if (eventsToDelete.Count > 0 || !string.IsNullOrEmpty(categoryToDelete))
+                EditorUtility.SetDirty(database);
+        }
+
+        private static void EnsureParameterList(EventDefinition definition)
+        {
+            if (definition.parameters == null)
+                definition.parameters = new List<EventParameterDefinition>();
+
+            // Migrate legacy assets that stored a single parameterType.
+            if (definition.parameters.Count == 0 && definition.parameterType != EventParameterType.None)
+            {
+                definition.parameters.Add(new EventParameterDefinition
+                {
+                    parameterName = "value",
+                    parameterType = definition.parameterType
+                });
             }
         }
 
@@ -333,8 +365,8 @@ namespace Uni7.Events
                 return true;
 
             string query = searchQuery.Trim();
-            return category.categoryName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   e.eventName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+            return (category.categoryName ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   (e.eventName ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0 ||
                    (!string.IsNullOrEmpty(e.comment) &&
                     e.comment.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0);
         }
@@ -383,12 +415,22 @@ namespace Uni7.Events
                 return;
             }
 
-            category.events.Add(new EventDefinition
+            var definition = new EventDefinition
             {
                 eventName = name,
                 comment = "",
-                parameterType = newParameterType
-            });
+                parameterType = newParameterType,
+                parameters = new List<EventParameterDefinition>()
+            };
+            if (newParameterType != EventParameterType.None)
+            {
+                definition.parameters.Add(new EventParameterDefinition
+                {
+                    parameterName = "value",
+                    parameterType = newParameterType
+                });
+            }
+            category.events.Add(definition);
 
             newEventName = "";
             newParameterType = EventParameterType.None;
@@ -431,6 +473,12 @@ namespace Uni7.Events
 
             EnsureFolder(GeneratedFolder);
             EnsureFolder(GeneratedCategoriesFolder);
+            string validationError = ValidateDefinitions();
+            if (!string.IsNullOrEmpty(validationError))
+            {
+                EditorUtility.DisplayDialog("Event Manager - 定義エラー", validationError, "OK");
+                return;
+            }
             if (IsUIModuleEnabled())
                 EnsureUICategoryDefinitions();
 
@@ -474,6 +522,68 @@ namespace Uni7.Events
             if (stale.Count > 0)
                 message += "\n\n未使用と思われる生成ファイル（内容を確認してから手動で削除してください）:\n" + string.Join("\n", stale);
             EditorUtility.DisplayDialog("Event Manager", message, "OK");
+        }
+
+        private string ValidateDefinitions()
+        {
+            var categoryNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (EventCategoryDefinition category in database.categories)
+            {
+                if (category == null || !IsValidIdentifier(category.categoryName))
+                    return "カテゴリ名がC#の識別子として不正です。";
+                if (!categoryNames.Add(category.categoryName))
+                    return $"カテゴリ名が重複しています: {category.categoryName}";
+
+                var eventNames = new HashSet<string>(StringComparer.Ordinal);
+                foreach (EventDefinition definition in category.events)
+                {
+                    if (definition == null || !IsValidIdentifier(definition.eventName))
+                        return $"{category.categoryName} に不正なイベント名があります。";
+                    if (!eventNames.Add(definition.eventName))
+                        return $"イベント名が重複しています: {category.categoryName}.{definition.eventName}";
+
+                    EnsureParameterList(definition);
+                    var parameterNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (EventParameterDefinition parameter in definition.parameters)
+                    {
+                        if (parameter == null || !IsValidIdentifier(parameter.parameterName))
+                            return $"{definition.eventName} に不正な引数名があります。";
+                        if (!parameterNames.Add(parameter.parameterName))
+                            return $"{definition.eventName} の引数名が重複しています: {parameter.parameterName}";
+                        if (parameter.parameterType == EventParameterType.None)
+                            return $"{definition.eventName}.{parameter.parameterName} の型に None は指定できません。";
+                    }
+                }
+            }
+
+            // Built-in UI events are connected to UIEventHub and must keep their contract.
+            EventCategoryDefinition uiCategory = database.categories.FirstOrDefault(x => x != null && x.categoryName == "UI");
+            if (uiCategory != null)
+            {
+                if (!HasExpectedUIEvent(uiCategory, "OpenWindow", EventParameterType.String) ||
+                    !HasExpectedUIEvent(uiCategory, "OpenModal", EventParameterType.String) ||
+                    !HasExpectedUIEvent(uiCategory, "CloseUI", EventParameterType.String) ||
+                    !HasExpectedUIEvent(uiCategory, "CloseTopModal", EventParameterType.None) ||
+                    !HasExpectedUIEvent(uiCategory, "CloseAll", EventParameterType.None))
+                    return "UIカテゴリの標準イベント（OpenWindow / OpenModal / CloseUI / CloseTopModal / CloseAll）の引数は変更できません。";
+            }
+            return null;
+        }
+
+        private static bool HasExpectedUIEvent(EventCategoryDefinition category, string eventName, EventParameterType expectedType)
+        {
+            EventDefinition definition = category.events.FirstOrDefault(x => x != null && x.eventName == eventName);
+            if (definition == null) return true;
+            EnsureParameterList(definition);
+            if (expectedType == EventParameterType.None) return definition.parameters.Count == 0;
+            return definition.parameters.Count == 1 && definition.parameters[0].parameterType == expectedType;
+        }
+
+        private static bool IsValidIdentifier(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || CSharpKeywords.Contains(value)) return false;
+            if (!(char.IsLetter(value[0]) || value[0] == '_')) return false;
+            return value.Skip(1).All(c => char.IsLetterOrDigit(c) || c == '_');
         }
 
         private static bool CanOverwriteGeneratedFile(string path)
@@ -523,17 +633,27 @@ namespace Uni7.Events
             if (existing != null)
             {
                 existing.parameterType = type;
+                existing.parameters = type == EventParameterType.None
+                    ? new List<EventParameterDefinition>()
+                    : new List<EventParameterDefinition> { new EventParameterDefinition { parameterName = "value", parameterType = type } };
                 if (string.IsNullOrWhiteSpace(existing.comment)) existing.comment = comment;
                 return;
             }
-            category.events.Add(new EventDefinition { eventName = name, parameterType = type, comment = comment });
+            category.events.Add(new EventDefinition
+            {
+                eventName = name,
+                parameterType = type,
+                comment = comment,
+                parameters = type == EventParameterType.None
+                    ? new List<EventParameterDefinition>()
+                    : new List<EventParameterDefinition> { new EventParameterDefinition { parameterName = "value", parameterType = type } }
+            });
         }
 
         private void GenerateCategory(EventCategoryDefinition category)
         {
             string className = category.categoryName + "Events";
             string path = $"{GeneratedCategoriesFolder}/{className}.cs";
-
             StringBuilder sb = new();
 
             sb.AppendLine("// <auto-generated>");
@@ -546,12 +666,34 @@ namespace Uni7.Events
             sb.AppendLine("using UniRx;");
             sb.AppendLine("using UnityEngine;");
             sb.AppendLine();
-            sb.AppendLine($"public sealed class {className} : IDisposable");
-            sb.AppendLine("{");
 
             foreach (EventDefinition e in category.events)
             {
-                string type = GetParameterType(e.parameterType);
+                EnsureParameterList(e);
+                if (e.parameters.Count > 1)
+                {
+                    string payload = GetPayloadTypeName(category, e);
+                    sb.AppendLine($"public readonly struct {payload}");
+                    sb.AppendLine("{");
+                    foreach (EventParameterDefinition parameter in e.parameters)
+                        sb.AppendLine($"    public readonly {GetParameterType(parameter.parameterType)} {ToPascalCase(parameter.parameterName)};");
+                    sb.AppendLine();
+                    sb.AppendLine($"    public {payload}({string.Join(", ", e.parameters.Select(p => GetParameterType(p.parameterType) + " " + p.parameterName))})");
+                    sb.AppendLine("    {");
+                    foreach (EventParameterDefinition parameter in e.parameters)
+                        sb.AppendLine($"        {ToPascalCase(parameter.parameterName)} = {parameter.parameterName};");
+                    sb.AppendLine("    }");
+                    sb.AppendLine("}");
+                    sb.AppendLine();
+                }
+            }
+
+            sb.AppendLine($"public sealed class {className} : IDisposable");
+            sb.AppendLine("{");
+            foreach (EventDefinition e in category.events)
+            {
+                EnsureParameterList(e);
+                string type = GetEventPayloadType(category, e);
                 sb.AppendLine($"    private readonly Subject<{type}> _{e.eventName} = new();");
             }
 
@@ -563,7 +705,6 @@ namespace Uni7.Events
                 sb.AppendLine("    private readonly Action<string> _hubCloseUI;");
                 sb.AppendLine("    private readonly Action _hubCloseTopModal;");
                 sb.AppendLine("    private readonly Action _hubCloseAll;");
-                sb.AppendLine();
                 sb.AppendLine("    public UIEvents()");
                 sb.AppendLine("    {");
                 sb.AppendLine("        _hubOpenWindow = value => _OpenWindow.OnNext(value);");
@@ -580,12 +721,8 @@ namespace Uni7.Events
                 sb.AppendLine("#endif");
             }
 
-            sb.AppendLine();
-
             foreach (EventDefinition e in category.events)
-            {
                 GenerateEventMethods(sb, e, category.categoryName);
-            }
 
             sb.AppendLine("    public void Dispose()");
             sb.AppendLine("    {");
@@ -599,94 +736,80 @@ namespace Uni7.Events
                 sb.AppendLine("        Uni7.UI.UIEventHub.CloseAll -= _hubCloseAll;");
                 sb.AppendLine("#endif");
             }
-
             foreach (EventDefinition e in category.events)
             {
                 sb.AppendLine($"        _{e.eventName}.OnCompleted();");
                 sb.AppendLine($"        _{e.eventName}.Dispose();");
             }
-
             sb.AppendLine("    }");
             sb.AppendLine("}");
-
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
         }
 
         private void GenerateEventMethods(StringBuilder sb, EventDefinition e, string categoryName)
         {
-            string type = GetParameterType(e.parameterType);
-            bool noParameter = e.parameterType == EventParameterType.None;
-
+            EnsureParameterList(e);
+            string payloadType = GetEventPayloadType(categoryName, e);
+            bool noParameter = e.parameters.Count == 0;
             AppendSummary(sb, e.comment);
             sb.AppendLine($"    // Event: {e.eventName}");
-            sb.AppendLine();
 
             if (noParameter)
             {
-                sb.AppendLine($"    public IDisposable On{e.eventName}(Action callback)");
-                sb.AppendLine("    {");
-                sb.AppendLine($"        return _{e.eventName}.Subscribe(_ => callback());");
-                sb.AppendLine("    }");
-                sb.AppendLine();
-
-                sb.AppendLine($"    public UniTask Wait{e.eventName}()");
-                sb.AppendLine("    {");
-                sb.AppendLine($"        return _{e.eventName}.First().ToUniTask();");
-                sb.AppendLine("    }");
-                sb.AppendLine();
-
-                sb.AppendLine($"    public void Emit{e.eventName}()");
-                sb.AppendLine("    {");
+                sb.AppendLine($"    public IDisposable On{e.eventName}(Action callback) => _{e.eventName}.Subscribe(_ => callback());");
+                sb.AppendLine($"    public UniTask Wait{e.eventName}() => _{e.eventName}.First().ToUniTask();");
                 if (categoryName == "UI" && e.eventName == "CloseTopModal")
                 {
-                    sb.AppendLine("#if UNI7_UI");
-                    sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseTopModal();");
-                    sb.AppendLine("#else");
-                    sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
-                    sb.AppendLine("#endif");
+                    sb.AppendLine("    public void EmitCloseTopModal()\n    {\n#if UNI7_UI\n        Uni7.UI.UIEventHub.PublishCloseTopModal();\n#else\n        _CloseTopModal.OnNext(Unit.Default);\n#endif\n    }");
                 }
                 else if (categoryName == "UI" && e.eventName == "CloseAll")
                 {
-                    sb.AppendLine("#if UNI7_UI");
-                    sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseAll();");
-                    sb.AppendLine("#else");
-                    sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
-                    sb.AppendLine("#endif");
+                    sb.AppendLine("    public void EmitCloseAll()\n    {\n#if UNI7_UI\n        Uni7.UI.UIEventHub.PublishCloseAll();\n#else\n        _CloseAll.OnNext(Unit.Default);\n#endif\n    }");
                 }
-                else sb.AppendLine($"        _{e.eventName}.OnNext(Unit.Default);");
-                sb.AppendLine("    }");
-                sb.AppendLine();
+                else
+                    sb.AppendLine($"    public void Emit{e.eventName}() => _{e.eventName}.OnNext(Unit.Default);");
+            }
+            else if (e.parameters.Count == 1)
+            {
+                string type = GetParameterType(e.parameters[0].parameterType);
+                string parameterName = e.parameters[0].parameterName;
+                sb.AppendLine($"    public IDisposable On{e.eventName}(Action<{type}> callback) => _{e.eventName}.Subscribe(callback);");
+                sb.AppendLine($"    public UniTask<{type}> Wait{e.eventName}() => _{e.eventName}.First().ToUniTask();");
+                if (categoryName == "UI" && e.eventName == "OpenWindow")
+                    sb.AppendLine($"    public void Emit{e.eventName}({type} {parameterName})\n    {{\n#if UNI7_UI\n        Uni7.UI.UIEventHub.PublishOpenWindow({parameterName});\n#else\n        _{e.eventName}.OnNext({parameterName});\n#endif\n    }}");
+                else if (categoryName == "UI" && e.eventName == "OpenModal")
+                    sb.AppendLine($"    public void Emit{e.eventName}({type} {parameterName})\n    {{\n#if UNI7_UI\n        Uni7.UI.UIEventHub.PublishOpenModal({parameterName});\n#else\n        _{e.eventName}.OnNext({parameterName});\n#endif\n    }}");
+                else if (categoryName == "UI" && e.eventName == "CloseUI")
+                    sb.AppendLine($"    public void Emit{e.eventName}({type} {parameterName})\n    {{\n#if UNI7_UI\n        Uni7.UI.UIEventHub.PublishCloseUI({parameterName});\n#else\n        _{e.eventName}.OnNext({parameterName});\n#endif\n    }}");
+                else
+                    sb.AppendLine($"    public void Emit{e.eventName}({type} {parameterName}) => _{e.eventName}.OnNext({parameterName});");
             }
             else
             {
-                sb.AppendLine($"    public IDisposable On{e.eventName}(Action<{type}> callback)");
-                sb.AppendLine("    {");
-                sb.AppendLine($"        return _{e.eventName}.Subscribe(callback);");
-                sb.AppendLine("    }");
-                sb.AppendLine();
-
-                sb.AppendLine($"    public UniTask<{type}> Wait{e.eventName}()");
-                sb.AppendLine("    {");
-                sb.AppendLine($"        return _{e.eventName}.First().ToUniTask();");
-                sb.AppendLine("    }");
-                sb.AppendLine();
-
-                sb.AppendLine($"    public void Emit{e.eventName}({type} value)");
-                sb.AppendLine("    {");
-                if (categoryName == "UI" && (e.eventName == "OpenWindow" || e.eventName == "OpenModal" || e.eventName == "CloseUI"))
-                {
-                    sb.AppendLine("#if UNI7_UI");
-                    if (e.eventName == "OpenWindow") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenWindow(value);");
-                    else if (e.eventName == "OpenModal") sb.AppendLine("        Uni7.UI.UIEventHub.PublishOpenModal(value);");
-                    else sb.AppendLine("        Uni7.UI.UIEventHub.PublishCloseUI(value);");
-                    sb.AppendLine("#else");
-                    sb.AppendLine($"        _{e.eventName}.OnNext(value);");
-                    sb.AppendLine("#endif");
-                }
-                else sb.AppendLine($"        _{e.eventName}.OnNext(value);");
-                sb.AppendLine("    }");
-                sb.AppendLine();
+                string args = string.Join(", ", e.parameters.Select(p => GetParameterType(p.parameterType) + " " + p.parameterName));
+                string values = string.Join(", ", e.parameters.Select(p => p.parameterName));
+                sb.AppendLine($"    public IDisposable On{e.eventName}(Action<{payloadType}> callback) => _{e.eventName}.Subscribe(callback);");
+                sb.AppendLine($"    public UniTask<{payloadType}> Wait{e.eventName}() => _{e.eventName}.First().ToUniTask();");
+                sb.AppendLine($"    public void Emit{e.eventName}({args}) => _{e.eventName}.OnNext(new {payloadType}({values}));");
             }
+            sb.AppendLine();
+        }
+
+        private static string GetEventPayloadType(string categoryName, EventDefinition definition)
+        {
+            EnsureParameterList(definition);
+            if (definition.parameters.Count == 0) return "Unit";
+            if (definition.parameters.Count == 1) return GetParameterType(definition.parameters[0].parameterType);
+            return GetPayloadTypeName(categoryName, definition);
+        }
+
+        private static string GetPayloadTypeName(string categoryName, EventDefinition definition)
+            => categoryName + definition.eventName + "Payload";
+
+        private static string ToPascalCase(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "Value";
+            return char.ToUpperInvariant(value[0]) + value.Substring(1);
         }
 
         private void GenerateEventManager()
@@ -804,6 +927,11 @@ namespace Uni7.Events
             };
         }
 
+        private static readonly HashSet<string> CSharpKeywords = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while", "async", "await"
+        };
+
         private static string SanitizeIdentifier(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -823,6 +951,9 @@ namespace Uni7.Events
                 return "";
 
             if (char.IsDigit(result[0]))
+                result = "_" + result;
+
+            if (CSharpKeywords.Contains(result))
                 result = "_" + result;
 
             return result;
@@ -852,6 +983,5 @@ namespace Uni7.Events
             AssetDatabase.CreateFolder(parent, folder);
         }
     }
-#endif
-
 }
+#endif

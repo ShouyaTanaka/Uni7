@@ -30,8 +30,18 @@ namespace Uni7.Events
         [TextArea(2, 5)]
         public string comment;
 
-        // Supported values are defined by the editor.
+        // Legacy single-parameter field. Kept so existing EventDefinitionDatabase assets migrate safely.
         public EventParameterType parameterType;
+
+        // New multi-parameter definition. When empty, the editor migrates parameterType on first edit.
+        public List<EventParameterDefinition> parameters = new();
+    }
+
+    [Serializable]
+    public class EventParameterDefinition
+    {
+        public string parameterName = "value";
+        public EventParameterType parameterType = EventParameterType.String;
     }
 
     public enum EventParameterType
