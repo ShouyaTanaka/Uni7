@@ -672,7 +672,7 @@ namespace Uni7.Events
                 EnsureParameterList(e);
                 if (e.parameters.Count > 1)
                 {
-                    string payload = GetPayloadTypeName(category, e);
+                    string payload = GetPayloadTypeName(category.categoryName, e);
                     sb.AppendLine($"public readonly struct {payload}");
                     sb.AppendLine("{");
                     foreach (EventParameterDefinition parameter in e.parameters)
@@ -693,7 +693,7 @@ namespace Uni7.Events
             foreach (EventDefinition e in category.events)
             {
                 EnsureParameterList(e);
-                string type = GetEventPayloadType(category, e);
+                string type = GetEventPayloadType(category.categoryName, e);
                 sb.AppendLine($"    private readonly Subject<{type}> _{e.eventName} = new();");
             }
 
