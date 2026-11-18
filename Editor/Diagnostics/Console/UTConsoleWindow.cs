@@ -312,6 +312,17 @@ namespace Uni7.Diagnostics
             EditorGUI.DrawRect(rect, new Color(0.25f, 0.25f, 0.25f, 0.8f));
         }
 
+        private static void DrawDetailField(string label, string value)
+        {
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+
+            EditorGUILayout.SelectableLabel(
+                value ?? string.Empty,
+                EditorStyles.textArea,
+                GUILayout.MinHeight(20)
+            );
+        }
+
         private void DrawDetails()
         {
             float width = Mathf.Max(170f, position.width * detailWidth);
