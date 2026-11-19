@@ -25,7 +25,8 @@ namespace Uni7.Diagnostics
 
         public static event Action<LogEntry> OnLogAdded;
         public static event Action<LogEntry> OnLogUpdated;
-        public static event Action OnLogsCleared;\n        public static event Action OnLogsChanged;
+        public static event Action OnLogsCleared;
+        public static event Action OnLogsChanged;
 
         public static bool IsUnityLogCaptureEnabled { get { return captureUnityLogs; } }
 
