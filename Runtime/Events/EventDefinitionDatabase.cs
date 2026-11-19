@@ -44,6 +44,15 @@ namespace Uni7.Events
         public EventParameterType parameterType = EventParameterType.String;
     }
 
+    /// <summary>Serialized value used by UI Event bindings. The actual value is parsed according to parameterType.</summary>
+    [Serializable]
+    public class EventParameterValue
+    {
+        public EventParameterType parameterType = EventParameterType.String;
+        public string value = "";
+        public GameObject objectValue;
+    }
+
     public enum EventParameterType
     {
         None,

@@ -32,6 +32,7 @@ namespace Uni7.UI
         public EventParameterType parameterType;
         public string parameterValue;
         public GameObject objectParameter;
+        public List<EventParameterValue> parameters = new List<EventParameterValue>();
         public float pressScale = 0.94f;
         public float animationDuration = 0.08f;
     }

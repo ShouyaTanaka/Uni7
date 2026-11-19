@@ -718,25 +718,124 @@ namespace Uni7.Editor.UI
                 return;
             }
             EventDefinition[] events = category.events.Where(x => x != null).ToArray();
-            if (events.Length == 0)
-            {
-                EditorGUILayout.HelpBox("このカテゴリに有効なEventがありません。", MessageType.Info);
-                return;
-            }
+            if (events.Length == 0) { EditorGUILayout.HelpBox("このカテゴリに有効なEventがありません。", MessageType.Info); return; }
             string[] names = events.Select(x => x.eventName).ToArray();
             int eventIndex = Array.IndexOf(names, entry.eventName);
             if (eventIndex < 0) eventIndex = 0;
             eventIndex = EditorGUILayout.Popup("Event", eventIndex, names);
             EventDefinition selected = events[eventIndex];
             entry.eventName = selected.eventName;
-            entry.parameterType = selected.parameterType;
-            EditorGUILayout.LabelField("Parameter", entry.parameterType.ToString());
-            switch (entry.parameterType)
+            EnsureEventParameters(selected);
+            EnsureButtonParameterValues(entry, selected);
+
+            EditorGUILayout.LabelField("Parameters", selected.parameters.Count == 0 ? "None" : selected.parameters.Count.ToString());
+            for (int i = 0; i < selected.parameters.Count; i++)
             {
-                case EventParameterType.None: entry.parameterValue = ""; entry.objectParameter = null; break;
-                case EventParameterType.GameObject: entry.objectParameter = (GameObject)EditorGUILayout.ObjectField("GameObject", entry.objectParameter, typeof(GameObject), false); break;
-                default: entry.parameterValue = EditorGUILayout.TextField("Value", entry.parameterValue); break;
+                EventParameterDefinition definition = selected.parameters[i];
+                EventParameterValue value = entry.parameters[i];
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    EditorGUILayout.LabelField($"{i + 1}. {definition.parameterName} ({definition.parameterType})", EditorStyles.miniBoldLabel);
+                    switch (definition.parameterType)
+                    {
+                        case EventParameterType.Int:
+                            if (int.TryParse(value.value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int intValue))
+                                value.value = EditorGUILayout.IntField("Value", intValue).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            else value.value = EditorGUILayout.IntField("Value", 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            break;
+                        case EventParameterType.Float:
+                            if (float.TryParse(value.value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float floatValue))
+                                value.value = EditorGUILayout.FloatField("Value", floatValue).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            else value.value = EditorGUILayout.FloatField("Value", 0f).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                            break;
+                        case EventParameterType.Bool:
+                            bool boolValue = bool.TryParse(value.value, out bool parsedBool) && parsedBool;
+                            value.value = EditorGUILayout.Toggle("Value", boolValue).ToString();
+                            break;
+                        case EventParameterType.String:
+                            value.value = EditorGUILayout.TextField("Value", value.value ?? "");
+                            break;
+                        case EventParameterType.Vector2:
+                            Vector2 v2 = ParseVector2(value.value);
+                            v2 = EditorGUILayout.Vector2Field("Value", v2);
+                            value.value = v2.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + v2.y.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                            break;
+                        case EventParameterType.Vector3:
+                            Vector3 v3 = ParseVector3(value.value);
+                            v3 = EditorGUILayout.Vector3Field("Value", v3);
+                            value.value = v3.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + v3.y.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "," + v3.z.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                            break;
+                        case EventParameterType.GameObject:
+                            value.objectValue = (GameObject)EditorGUILayout.ObjectField("GameObject", value.objectValue, typeof(GameObject), false);
+                            break;
+                    }
+                }
             }
+            // Keep legacy serialized fields synchronized for projects that still inspect them.
+            entry.parameterType = selected.parameters.Count == 1 ? selected.parameters[0].parameterType : EventParameterType.None;
+            if (selected.parameters.Count == 1)
+            {
+                entry.parameterValue = entry.parameters[0].value;
+                entry.objectParameter = entry.parameters[0].objectValue;
+            }
+            else { entry.parameterValue = ""; entry.objectParameter = null; }
+        }
+
+        private static void EnsureEventParameters(EventDefinition definition)
+        {
+            if (definition.parameters == null) definition.parameters = new List<EventParameterDefinition>();
+            if (definition.parameters.Count == 0 && definition.parameterType != EventParameterType.None)
+                definition.parameters.Add(new EventParameterDefinition { parameterName = "value", parameterType = definition.parameterType });
+            definition.parameterType = definition.parameters.Count == 1 && definition.parameters[0] != null ? definition.parameters[0].parameterType : EventParameterType.None;
+        }
+
+        private static void EnsureButtonParameterValues(UIButtonEntry entry, EventDefinition definition)
+        {
+            if (entry.parameters == null) entry.parameters = new List<EventParameterValue>();
+            if (entry.parameters.Count == 0 && entry.parameterType != EventParameterType.None && definition.parameters.Count == 1)
+                entry.parameters.Add(new EventParameterValue { parameterType = entry.parameterType, value = entry.parameterValue, objectValue = entry.objectParameter });
+            while (entry.parameters.Count > definition.parameters.Count) entry.parameters.RemoveAt(entry.parameters.Count - 1);
+            while (entry.parameters.Count < definition.parameters.Count) entry.parameters.Add(new EventParameterValue());
+            for (int i = 0; i < definition.parameters.Count; i++)
+            {
+                EventParameterValue value = entry.parameters[i];
+                if (value == null) entry.parameters[i] = value = new EventParameterValue();
+                if (value.parameterType != definition.parameters[i].parameterType)
+                {
+                    value.parameterType = definition.parameters[i].parameterType;
+                    value.value = DefaultEventParameterValue(value.parameterType);
+                    value.objectValue = null;
+                }
+                else if (string.IsNullOrEmpty(value.value) && value.parameterType != EventParameterType.String)
+                {
+                    value.value = DefaultEventParameterValue(value.parameterType);
+                }
+            }
+        }
+
+        private static string DefaultEventParameterValue(EventParameterType type)
+        {
+            switch (type)
+            {
+                case EventParameterType.Int: return "0";
+                case EventParameterType.Float: return "0";
+                case EventParameterType.Bool: return "false";
+                case EventParameterType.Vector2: return "0,0";
+                case EventParameterType.Vector3: return "0,0,0";
+                default: return "";
+            }
+        }
+
+        private static Vector2 ParseVector2(string value)
+        {
+            string[] parts = (value ?? "").Split(',');
+            return parts.Length == 2 && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x) && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y) ? new Vector2(x, y) : Vector2.zero;
+        }
+
+        private static Vector3 ParseVector3(string value)
+        {
+            string[] parts = (value ?? "").Split(',');
+            return parts.Length == 3 && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x) && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y) && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z) ? new Vector3(x, y, z) : Vector3.zero;
         }
 
         private static void DrawStringPopup(string label, string[] options, ref string value)
@@ -1175,8 +1274,16 @@ namespace Uni7.Editor.UI
                             ? category.events.FirstOrDefault(x => x != null && x.eventName == entry.eventName)
                             : null;
                         if (definition == null) errors.Add($"Eventが見つかりません: {entry.id} -> {entry.eventCategory}.{entry.eventName}");
-                        else if (definition.parameterType != entry.parameterType)
-                            errors.Add($"Event引数の型が変更されています: {entry.id} -> {entry.eventCategory}.{entry.eventName}");
+                        else
+                        {
+                            EnsureEventParameters(definition);
+                            int boundParameterCount = entry.parameters != null ? entry.parameters.Count : 0;
+                            bool matches = entry.parameters != null && boundParameterCount == definition.parameters.Count &&
+                                entry.parameters.Select(x => x != null ? x.parameterType : EventParameterType.None)
+                                    .SequenceEqual(definition.parameters.Select(x => x.parameterType));
+                            if (!matches && !(definition.parameters.Count == 1 && boundParameterCount == 0 && entry.parameterType == definition.parameters[0].parameterType))
+                                errors.Add($"Event引数の型または個数が変更されています: {entry.id} -> {entry.eventCategory}.{entry.eventName}");
+                        }
                     }
                 }
             }

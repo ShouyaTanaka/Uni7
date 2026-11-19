@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Cysharp.Threading.Tasks;
@@ -26,6 +27,7 @@ namespace Uni7.UI
         [SerializeField] private EventParameterType parameterType;
         [SerializeField] private string parameterValue;
         [SerializeField] private GameObject objectParameter;
+        [SerializeField] private List<EventParameterValue> parameters = new List<EventParameterValue>();
         [SerializeField, Min(0f)] private float pressScale = 0.94f;
         [SerializeField, Min(0f)] private float animationDuration = 0.08f;
 
@@ -127,14 +129,30 @@ namespace Uni7.UI
         {
             string categoryName = entry != null ? entry.eventCategory : eventCategory;
             string customEventName = entry != null ? entry.eventName : eventName;
-            EventParameterType type = entry != null ? entry.parameterType : parameterType;
-            string valueText = entry != null ? entry.parameterValue : parameterValue;
-            GameObject goValue = entry != null ? entry.objectParameter : objectParameter;
+            List<EventParameterValue> configured = entry != null ? entry.parameters : parameters;
 
             if (string.IsNullOrWhiteSpace(categoryName) || string.IsNullOrWhiteSpace(customEventName))
                 throw new InvalidOperationException("ButtonのEventカテゴリまたはEvent名が未設定です。");
 
-            // Generated EventManager is in the project's generated assembly. Reflection avoids a circular asmdef reference.
+            // Backward compatibility: old ButtonRegistry / Prefab data stored one argument in legacy fields.
+            if (configured == null || configured.Count == 0)
+            {
+                EventParameterType legacyType = entry != null ? entry.parameterType : parameterType;
+                if (legacyType != EventParameterType.None)
+                {
+                    configured = new List<EventParameterValue>
+                    {
+                        new EventParameterValue
+                        {
+                            parameterType = legacyType,
+                            value = entry != null ? entry.parameterValue : parameterValue,
+                            objectValue = entry != null ? entry.objectParameter : objectParameter
+                        }
+                    };
+                }
+                else configured = new List<EventParameterValue>();
+            }
+
             Type[] managerTypes = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(assembly => assembly.GetType("EventManager", false))
                 .Where(typeInfo => typeInfo != null)
@@ -143,30 +161,28 @@ namespace Uni7.UI
                 throw new InvalidOperationException("EventManagerが見つかりません。Event Generatorでコードを生成してください。");
             if (managerTypes.Length > 1)
                 throw new InvalidOperationException("EventManagerが複数見つかりました。同名型の重複を解消してください。");
-            Type managerType = managerTypes[0];
 
+            Type managerType = managerTypes[0];
             PropertyInfo categoryProperty = managerType.GetProperty(categoryName, BindingFlags.Public | BindingFlags.Static);
             object category = categoryProperty?.GetValue(null);
             if (category == null) throw new InvalidOperationException($"Eventカテゴリ '{categoryName}' が見つかりません。");
 
+            if (configured.Any(value => value == null))
+                throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' の引数設定に空の要素があります。UIButtonRegistryを再設定してください。");
+
+            Type[] expectedTypes = configured.Select(value => GetParameterType(value.parameterType)).ToArray();
             string methodName = "Emit" + customEventName;
-            Type expectedParameterType = GetParameterType(type);
             MethodInfo[] candidates = category.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
                 .Where(candidate => candidate.Name == methodName)
-                .Where(candidate =>
-                {
-                    ParameterInfo[] parameters = candidate.GetParameters();
-                    return expectedParameterType == null
-                        ? parameters.Length == 0
-                        : parameters.Length == 1 && parameters[0].ParameterType == expectedParameterType;
-                })
+                .Where(candidate => candidate.GetParameters().Select(parameter => parameter.ParameterType).SequenceEqual(expectedTypes))
                 .ToArray();
             if (candidates.Length == 0)
-                throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' が見つからないか、引数型が一致しません。Event Generatorで再生成してください。");
+                throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' が見つからないか、引数定義が一致しません。Event Generatorで再生成してください。");
             if (candidates.Length > 1)
                 throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' のEmitメソッドが曖昧です。");
-            if (expectedParameterType == null) { candidates[0].Invoke(category, null); return; }
-            candidates[0].Invoke(category, new[] { ParseParameter(type, valueText, goValue) });
+
+            object[] args = configured.Select(ParseParameter).ToArray();
+            candidates[0].Invoke(category, args);
         }
 
         private static Type GetParameterType(EventParameterType type)
@@ -185,28 +201,29 @@ namespace Uni7.UI
             }
         }
 
-        private static object ParseParameter(EventParameterType type, string value, GameObject objectValue)
+        private static object ParseParameter(EventParameterValue parameter)
         {
-            switch (type)
+            string value = parameter.value;
+            switch (parameter.parameterType)
             {
                 case EventParameterType.String: return value ?? string.Empty;
-                case EventParameterType.Int: return int.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
-                case EventParameterType.Float: return float.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
-                case EventParameterType.Bool: return bool.Parse(value);
+                case EventParameterType.Int: return int.Parse(string.IsNullOrWhiteSpace(value) ? "0" : value, System.Globalization.CultureInfo.InvariantCulture);
+                case EventParameterType.Float: return float.Parse(string.IsNullOrWhiteSpace(value) ? "0" : value, System.Globalization.CultureInfo.InvariantCulture);
+                case EventParameterType.Bool: return bool.Parse(string.IsNullOrWhiteSpace(value) ? "false" : value);
                 case EventParameterType.Vector2:
                     {
-                        string[] p = (value ?? "").Split(',');
-                        if (p.Length != 2) throw new FormatException("Vector2は 'x,y' 形式で入力してください。");
-                        return new Vector2(float.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture));
+                        string[] parts = (value ?? "").Split(',');
+                        if (parts.Length != 2) throw new FormatException("Vector2は 'x,y' 形式で入力してください。");
+                        return new Vector2(float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture));
                     }
                 case EventParameterType.Vector3:
                     {
-                        string[] p = (value ?? "").Split(',');
-                        if (p.Length != 3) throw new FormatException("Vector3は 'x,y,z' 形式で入力してください。");
-                        return new Vector3(float.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture));
+                        string[] parts = (value ?? "").Split(',');
+                        if (parts.Length != 3) throw new FormatException("Vector3は 'x,y,z' 形式で入力してください。");
+                        return new Vector3(float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture));
                     }
-                case EventParameterType.GameObject: return objectValue;
-                default: return null;
+                case EventParameterType.GameObject: return parameter.objectValue;
+                default: throw new ArgumentOutOfRangeException(nameof(parameter.parameterType), parameter.parameterType, "未対応のEvent引数型です。");
             }
         }
 
