@@ -49,6 +49,7 @@ namespace Uni7.Diagnostics
             UTLog.OnLogAdded += HandleLogAdded;
             UTLog.OnLogUpdated += HandleLogUpdated;
             UTLog.OnLogsCleared += HandleLogsCleared;
+            UTLog.OnLogsChanged += HandleLogsChanged;
             LoadIcons();
         }
 
@@ -57,6 +58,7 @@ namespace Uni7.Diagnostics
             UTLog.OnLogAdded -= HandleLogAdded;
             UTLog.OnLogUpdated -= HandleLogUpdated;
             UTLog.OnLogsCleared -= HandleLogsCleared;
+            UTLog.OnLogsChanged -= HandleLogsChanged;
         }
 
         private void LoadIcons()
@@ -76,6 +78,11 @@ namespace Uni7.Diagnostics
         private void HandleLogsCleared()
         {
             selectedIds.Clear();
+            Repaint();
+        }
+
+        private void HandleLogsChanged()
+        {
             Repaint();
         }
 

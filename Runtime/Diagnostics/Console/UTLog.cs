@@ -20,11 +20,12 @@ namespace Uni7.Diagnostics
         private static long nextId;
         private static bool initialized;
         private static bool forwardingToUnity;
+        private static bool reportingSubscriberException;
         private static bool captureUnityLogs = true;
 
         public static event Action<LogEntry> OnLogAdded;
         public static event Action<LogEntry> OnLogUpdated;
-        public static event Action OnLogsCleared;
+        public static event Action OnLogsCleared;\n        public static event Action OnLogsChanged;
 
         public static bool IsUnityLogCaptureEnabled { get { return captureUnityLogs; } }
 
@@ -35,9 +36,22 @@ namespace Uni7.Diagnostics
         }
 
         /// <summary>明示的に初期化したい場合にも呼び出せます。複数回呼んでも安全です。</summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStaticState()
+        {
+            Application.logMessageReceived -= OnUnityLogMessageReceived;
+            initialized = false;
+            forwardingToUnity = false;
+            reportingSubscriberException = false;
+            captureUnityLogs = UTLogSettings.CaptureUnityLogs;
+            nextId = 0;
+            lock (SyncRoot) Entries.Clear();
+        }
+
         public static void Initialize()
         {
-            if (initialized) return;
+            // Remove first so initialization is safe when Domain Reload is disabled.
+            Application.logMessageReceived -= OnUnityLogMessageReceived;
             Application.logMessageReceived += OnUnityLogMessageReceived;
             initialized = true;
         }
@@ -46,60 +60,60 @@ namespace Uni7.Diagnostics
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
             return new LogBuilder(Add(LogType.Log, FormatObject(message), "Default",
-                filePath, lineNumber, Environment.StackTrace, null, true));
+                filePath, lineNumber, GetCurrentStackTrace(), null, true));
         }
 
         public static LogBuilder Log(object message, UnityEngine.Object context,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
             return new LogBuilder(Add(LogType.Log, FormatObject(message), "Default",
-                filePath, lineNumber, Environment.StackTrace, context, true));
+                filePath, lineNumber, GetCurrentStackTrace(), context, true));
         }
 
         public static LogBuilder Warning(object message,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
             return new LogBuilder(Add(LogType.Warning, FormatObject(message), "Default",
-                filePath, lineNumber, Environment.StackTrace, null, true));
+                filePath, lineNumber, GetCurrentStackTrace(), null, true));
         }
 
         public static LogBuilder Warning(object message, UnityEngine.Object context,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
             return new LogBuilder(Add(LogType.Warning, FormatObject(message), "Default",
-                filePath, lineNumber, Environment.StackTrace, context, true));
+                filePath, lineNumber, GetCurrentStackTrace(), context, true));
         }
 
         public static LogBuilder Error(object message,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
             return new LogBuilder(Add(LogType.Error, FormatObject(message), "Default",
-                filePath, lineNumber, Environment.StackTrace, null, true));
+                filePath, lineNumber, GetCurrentStackTrace(), null, true));
         }
 
         public static LogBuilder Error(object message, UnityEngine.Object context,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
             return new LogBuilder(Add(LogType.Error, FormatObject(message), "Default",
-                filePath, lineNumber, Environment.StackTrace, context, true));
+                filePath, lineNumber, GetCurrentStackTrace(), context, true));
         }
 
         public static LogEntry LogTagged(string tag, object message,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
-            return Add(LogType.Log, FormatObject(message), tag, filePath, lineNumber, Environment.StackTrace, null, true);
+            return Add(LogType.Log, FormatObject(message), tag, filePath, lineNumber, GetCurrentStackTrace(), null, true);
         }
 
         public static LogEntry WarningTagged(string tag, object message,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
-            return Add(LogType.Warning, FormatObject(message), tag, filePath, lineNumber, Environment.StackTrace, null, true);
+            return Add(LogType.Warning, FormatObject(message), tag, filePath, lineNumber, GetCurrentStackTrace(), null, true);
         }
 
         public static LogEntry ErrorTagged(string tag, object message,
             [CallerFilePath] string filePath = "", [CallerLineNumber] int lineNumber = 0)
         {
-            return Add(LogType.Error, FormatObject(message), tag, filePath, lineNumber, Environment.StackTrace, null, true);
+            return Add(LogType.Error, FormatObject(message), tag, filePath, lineNumber, GetCurrentStackTrace(), null, true);
         }
 
         public static LogEntry LogFormat(string format, params object[] args)
@@ -107,32 +121,32 @@ namespace Uni7.Diagnostics
             string message;
             try { message = string.Format(format ?? string.Empty, args ?? new object[0]); }
             catch (FormatException ex) { message = (format ?? string.Empty) + " [FormatException: " + ex.Message + "]"; }
-            return Add(LogType.Log, message, "Default", string.Empty, 0, Environment.StackTrace, null, true);
+            return Add(LogType.Log, message, "Default", string.Empty, 0, GetCurrentStackTrace(), null, true);
         }
 
         public static LogEntry WarningFormat(string format, params object[] args)
         {
-            return Add(LogType.Warning, SafeFormat(format, args), "Default", string.Empty, 0, Environment.StackTrace, null, true);
+            return Add(LogType.Warning, SafeFormat(format, args), "Default", string.Empty, 0, GetCurrentStackTrace(), null, true);
         }
 
         public static LogEntry ErrorFormat(string format, params object[] args)
         {
-            return Add(LogType.Error, SafeFormat(format, args), "Default", string.Empty, 0, Environment.StackTrace, null, true);
+            return Add(LogType.Error, SafeFormat(format, args), "Default", string.Empty, 0, GetCurrentStackTrace(), null, true);
         }
 
         public static LogEntry LogIf(bool condition, object message)
         {
-            return condition ? Add(LogType.Log, FormatObject(message), "Default", string.Empty, 0, Environment.StackTrace, null, true) : null;
+            return condition ? Add(LogType.Log, FormatObject(message), "Default", string.Empty, 0, GetCurrentStackTrace(), null, true) : null;
         }
 
         public static LogEntry WarningIf(bool condition, object message)
         {
-            return condition ? Add(LogType.Warning, FormatObject(message), "Default", string.Empty, 0, Environment.StackTrace, null, true) : null;
+            return condition ? Add(LogType.Warning, FormatObject(message), "Default", string.Empty, 0, GetCurrentStackTrace(), null, true) : null;
         }
 
         public static LogEntry ErrorIf(bool condition, object message)
         {
-            return condition ? Add(LogType.Error, FormatObject(message), "Default", string.Empty, 0, Environment.StackTrace, null, true) : null;
+            return condition ? Add(LogType.Error, FormatObject(message), "Default", string.Empty, 0, GetCurrentStackTrace(), null, true) : null;
         }
 
         public static LogEntry LogException(Exception exception, UnityEngine.Object context = null)
@@ -148,7 +162,7 @@ namespace Uni7.Diagnostics
             string message = value == null
                 ? "null"
                 : value.GetType().FullName + Environment.NewLine + value;
-            return Add(LogType.Log, message, tag, string.Empty, 0, Environment.StackTrace, value as UnityEngine.Object, true);
+            return Add(LogType.Log, message, tag, string.Empty, 0, GetCurrentStackTrace(), value as UnityEngine.Object, true);
         }
 
         public static IReadOnlyList<LogEntry> GetAllLogs()
@@ -160,17 +174,17 @@ namespace Uni7.Diagnostics
         public static void Clear()
         {
             lock (SyncRoot) Entries.Clear();
-            Action handler = OnLogsCleared;
-            if (handler != null) handler();
+            InvokeSafely(OnLogsCleared);
+            InvokeSafely(OnLogsChanged);
         }
 
         public static void RemoveLogs(IEnumerable<long> ids)
         {
             if (ids == null) return;
             HashSet<long> idSet = new HashSet<long>(ids);
-            lock (SyncRoot) Entries.RemoveAll(entry => idSet.Contains(entry.Id));
-            Action handler = OnLogsCleared;
-            if (handler != null) handler();
+            int removed;
+            lock (SyncRoot) removed = Entries.RemoveAll(entry => idSet.Contains(entry.Id));
+            if (removed > 0) InvokeSafely(OnLogsChanged);
         }
 
         public static void EnableUnityLogCapture()
@@ -189,17 +203,15 @@ namespace Uni7.Diagnostics
         internal static void UpdateLogTag(LogEntry entry, string tag)
         {
             if (entry == null) return;
-            entry.SetTag(tag);
-            Action<LogEntry> handler = OnLogUpdated;
-            if (handler != null) handler(entry);
+            lock (SyncRoot) entry.SetTag(tag);
+            InvokeSafely(OnLogUpdated, entry);
         }
 
         internal static void UpdateLogContext(LogEntry entry, UnityEngine.Object context)
         {
             if (entry == null) return;
-            entry.SetContext(context);
-            Action<LogEntry> handler = OnLogUpdated;
-            if (handler != null) handler(entry);
+            lock (SyncRoot) entry.SetContext(context);
+            InvokeSafely(OnLogUpdated, entry);
         }
 
         private static LogEntry Add(LogType type, string message, string tag, string filePath,
@@ -215,13 +227,47 @@ namespace Uni7.Diagnostics
                     Entries.RemoveRange(0, Entries.Count - max);
             }
 
-            Action<LogEntry> added = OnLogAdded;
-            if (added != null) added(entry);
+            InvokeSafely(OnLogAdded, entry);
 
             if (mirror && UTLogSettings.MirrorToUnityConsole)
                 Mirror(entry);
 
             return entry;
+        }
+
+        private static string GetCurrentStackTrace()
+        {
+            return UTLogSettings.CaptureStackTrace ? Environment.StackTrace : string.Empty;
+        }
+
+        private static void InvokeSafely(Action handler)
+        {
+            if (handler == null) return;
+            foreach (Delegate callback in handler.GetInvocationList())
+            {
+                try { ((Action)callback)(); }
+                catch (Exception exception)
+                {
+                    reportingSubscriberException = true;
+                    try { Debug.LogException(exception); }
+                    finally { reportingSubscriberException = false; }
+                }
+            }
+        }
+
+        private static void InvokeSafely(Action<LogEntry> handler, LogEntry entry)
+        {
+            if (handler == null) return;
+            foreach (Delegate callback in handler.GetInvocationList())
+            {
+                try { ((Action<LogEntry>)callback)(entry); }
+                catch (Exception exception)
+                {
+                    reportingSubscriberException = true;
+                    try { Debug.LogException(exception); }
+                    finally { reportingSubscriberException = false; }
+                }
+            }
         }
 
         private static void Mirror(LogEntry entry)
@@ -242,7 +288,7 @@ namespace Uni7.Diagnostics
 
         private static void OnUnityLogMessageReceived(string message, string stackTrace, UnityEngine.LogType unityType)
         {
-            if (!captureUnityLogs || forwardingToUnity) return;
+            if (!captureUnityLogs || forwardingToUnity || reportingSubscriberException) return;
 
             LogType type;
             switch (unityType)

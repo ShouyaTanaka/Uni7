@@ -53,6 +53,11 @@ namespace Uni7.UI
 
         private void OnEnable()
         {
+            UIEventHub.OpenWindow -= HandleOpenWindow;
+            UIEventHub.OpenModal -= HandleOpenModal;
+            UIEventHub.CloseUI -= HandleCloseUI;
+            UIEventHub.CloseTopModal -= HandleCloseTopModal;
+            UIEventHub.CloseAll -= HandleCloseAll;
             UIEventHub.OpenWindow += HandleOpenWindow;
             UIEventHub.OpenModal += HandleOpenModal;
             UIEventHub.CloseUI += HandleCloseUI;
@@ -155,6 +160,7 @@ namespace Uni7.UI
                 if (instance != null) Destroy(instance.gameObject);
                 throw;
             }
+            instance.CapturePrefabScale();
             instance.transform.SetParent(expectedType == UIType.Window ? windowRoot : modalRoot, false);
             instance.UIId = id;
             instance.State = UIState.Opening;
@@ -271,41 +277,70 @@ namespace Uni7.UI
 
         public async UniTask PreloadAsync(string id, int poolCount = 0, CancellationToken cancellationToken = default)
         {
-            if (registry == null || !registry.TryGet(id, out UIEntry entry))
-                throw new KeyNotFoundException($"[Uni7 UI] UIRegistryにID '{id}' が登録されていません。");
-            GameObject prefab = await LoadPrefabAsync(entry, cancellationToken);
-            int count = Mathf.Clamp(poolCount, 0, entry.maxPoolSize);
-            for (int i = GetPool(id).Count; i < count; i++)
+            if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("UI IDが空です。", nameof(id));
+            SemaphoreSlim gate = GetOperationLock(id);
+            using (CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(destroyToken, cancellationToken))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                GameObject pooledObject = Instantiate(prefab, entry.type == UIType.Window ? windowRoot : modalRoot);
-                UIBase instance = pooledObject.GetComponent<UIBase>();
-                if (instance == null)
+                await gate.WaitAsync(linked.Token);
+                try
                 {
-                    Destroy(pooledObject);
-                    throw new InvalidOperationException($"[Uni7 UI] Prefab '{entry.address}' にUIBaseがありません。");
+                    ThrowIfUnavailable();
+                    if (registry == null || !registry.TryGet(id, out UIEntry entry))
+                        throw new KeyNotFoundException($"[Uni7 UI] UIRegistryにID '{id}' が登録されていません。");
+
+                    GameObject prefab = await LoadPrefabAsync(entry, linked.Token);
+                    int count = Mathf.Clamp(poolCount, 0, entry.maxPoolSize);
+                    for (int i = GetPool(id).Count; i < count; i++)
+                    {
+                        linked.Token.ThrowIfCancellationRequested();
+                        GameObject pooledObject = Instantiate(prefab, entry.type == UIType.Window ? windowRoot : modalRoot);
+                        try
+                        {
+                            UIBase instance = pooledObject.GetComponent<UIBase>();
+                            if (instance == null)
+                                throw new InvalidOperationException($"[Uni7 UI] Prefab '{entry.address}' にUIBaseがありません。");
+
+                            ValidateType(id, entry.type, instance);
+                            instance.CapturePrefabScale();
+                            instance.ResetVisualState();
+                            instance.UIId = id;
+                            instance.State = UIState.Pooled;
+                            instance.SetInputEnabled(false);
+                            instance.gameObject.SetActive(false);
+                            GetPool(id).Push(instance);
+                        }
+                        catch
+                        {
+                            if (pooledObject != null) Destroy(pooledObject);
+                            throw;
+                        }
+                    }
                 }
-                ValidateType(id, entry.type, instance);
-                instance.UIId = id;
-                instance.State = UIState.Pooled;
-                instance.SetInputEnabled(false);
-                instance.gameObject.SetActive(false);
-                GetPool(id).Push(instance);
+                finally { gate.Release(); }
             }
         }
 
         public async UniTask ReleasePoolAsync(string id)
         {
-            if (active.ContainsKey(id))
-                throw new InvalidOperationException($"[Uni7 UI] 表示中のUI '{id}' のPoolは解放できません。");
-            if (pools.TryGetValue(id, out UIPool pool)) pool.DisposeAll();
-            pools.Remove(id);
-            if (prefabHandles.TryGetValue(id, out AsyncOperationHandle<GameObject> handle))
+            if (string.IsNullOrWhiteSpace(id)) return;
+            SemaphoreSlim gate = GetOperationLock(id);
+            using (CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(destroyToken))
             {
-                prefabHandles.Remove(id);
-                if (handle.IsValid()) Addressables.Release(handle);
+                await gate.WaitAsync(linked.Token);
+                try
+                {
+                    if (active.ContainsKey(id))
+                        throw new InvalidOperationException($"[Uni7 UI] 表示中のUI '{id}' のPoolは解放できません。");
+                    if (pools.TryGetValue(id, out UIPool pool)) pool.DisposeAll();
+                    pools.Remove(id);
+                    if (prefabHandles.TryGetValue(id, out AsyncOperationHandle<GameObject> handle))
+                    {
+                        prefabHandles.Remove(id);
+                        if (handle.IsValid()) Addressables.Release(handle);
+                    }
+                }
+                finally { gate.Release(); }
             }
-            await UniTask.CompletedTask;
         }
 
         private async UniTask<GameObject> LoadPrefabAsync(UIEntry entry, CancellationToken token)
@@ -360,9 +395,22 @@ namespace Uni7.UI
         private void ReturnToPool(string id, UIBase instance, UIEntry entry)
         {
             if (instance == null) return;
-            instance.OnReturnedToPool();
+
+            try
+            {
+                instance.OnReturnedToPool();
+                if (instance == null) return;
+            }
+            catch (Exception exception)
+            {
+                // A component with a failed return hook is not safe to reuse.
+                Debug.LogException(exception, instance);
+                if (instance != null) Destroy(instance.gameObject);
+                return;
+            }
+
             instance.State = UIState.Pooled;
-            instance.SetInputEnabled(false);
+            instance.ResetVisualState();
             instance.gameObject.SetActive(false);
             int max = entry != null ? Mathf.Max(0, entry.maxPoolSize) : 0;
             if (GetPool(id).Count < max) GetPool(id).Push(instance);

@@ -8,6 +8,8 @@ namespace Uni7.UI
     public abstract class UIBase : MonoBehaviour
     {
         [NonSerialized] private CanvasGroup canvasGroup;
+        [NonSerialized] private Vector3 prefabScale;
+        [NonSerialized] private bool hasPrefabScale;
 
         [SerializeField, HideInInspector]
         private string uiId;
@@ -22,6 +24,31 @@ namespace Uni7.UI
         public CanvasGroup CanvasGroup => canvasGroup != null ? canvasGroup : (canvasGroup = GetComponent<CanvasGroup>());
 
         protected virtual void Awake() { canvasGroup = GetComponent<CanvasGroup>(); }
+
+        internal Vector3 PrefabScale
+        {
+            get
+            {
+                CapturePrefabScale();
+                return prefabScale;
+            }
+        }
+
+        internal void CapturePrefabScale()
+        {
+            if (hasPrefabScale) return;
+            prefabScale = transform.localScale;
+            hasPrefabScale = true;
+        }
+
+        internal void ResetVisualState()
+        {
+            CapturePrefabScale();
+            transform.localScale = prefabScale;
+            CanvasGroup.alpha = 1f;
+            SetInputEnabled(false);
+        }
+
         public virtual UniTask OnInitializeAsync() => UniTask.CompletedTask;
         public virtual UniTask OnOpenedAsync() => UniTask.CompletedTask;
         public virtual UniTask OnClosingAsync() => UniTask.CompletedTask;

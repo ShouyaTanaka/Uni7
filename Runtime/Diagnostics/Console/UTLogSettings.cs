@@ -11,5 +11,8 @@ namespace Uni7.Diagnostics
 
         /// <summary>Unity標準ログの自動キャプチャを有効にするか。</summary>
         public static bool CaptureUnityLogs { get; internal set; } = true;
+
+        /// <summary>UTLog呼び出し時にEnvironment.StackTraceを取得するか。大量ログ時は無効化を推奨。</summary>
+        public static bool CaptureStackTrace { get; set; } = true;
     }
 }

@@ -135,23 +135,54 @@ namespace Uni7.UI
                 throw new InvalidOperationException("ButtonのEventカテゴリまたはEvent名が未設定です。");
 
             // Generated EventManager is in the project's generated assembly. Reflection avoids a circular asmdef reference.
-            Type managerType = AppDomain.CurrentDomain.GetAssemblies()
+            Type[] managerTypes = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(assembly => assembly.GetType("EventManager", false))
-                .FirstOrDefault(typeInfo => typeInfo != null);
-            if (managerType == null)
+                .Where(typeInfo => typeInfo != null)
+                .ToArray();
+            if (managerTypes.Length == 0)
                 throw new InvalidOperationException("EventManagerが見つかりません。Event Generatorでコードを生成してください。");
+            if (managerTypes.Length > 1)
+                throw new InvalidOperationException("EventManagerが複数見つかりました。同名型の重複を解消してください。");
+            Type managerType = managerTypes[0];
 
             PropertyInfo categoryProperty = managerType.GetProperty(categoryName, BindingFlags.Public | BindingFlags.Static);
             object category = categoryProperty?.GetValue(null);
             if (category == null) throw new InvalidOperationException($"Eventカテゴリ '{categoryName}' が見つかりません。");
 
             string methodName = "Emit" + customEventName;
-            int parameterCount = type == EventParameterType.None ? 0 : 1;
-            MethodInfo method = category.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .FirstOrDefault(candidate => candidate.Name == methodName && candidate.GetParameters().Length == parameterCount);
-            if (method == null) throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' が見つかりません。Event Generatorで再生成してください。");
-            if (parameterCount == 0) { method.Invoke(category, null); return; }
-            method.Invoke(category, new[] { ParseParameter(type, valueText, goValue) });
+            Type expectedParameterType = GetParameterType(type);
+            MethodInfo[] candidates = category.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Where(candidate => candidate.Name == methodName)
+                .Where(candidate =>
+                {
+                    ParameterInfo[] parameters = candidate.GetParameters();
+                    return expectedParameterType == null
+                        ? parameters.Length == 0
+                        : parameters.Length == 1 && parameters[0].ParameterType == expectedParameterType;
+                })
+                .ToArray();
+            if (candidates.Length == 0)
+                throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' が見つからないか、引数型が一致しません。Event Generatorで再生成してください。");
+            if (candidates.Length > 1)
+                throw new InvalidOperationException($"Event '{categoryName}.{customEventName}' のEmitメソッドが曖昧です。");
+            if (expectedParameterType == null) { candidates[0].Invoke(category, null); return; }
+            candidates[0].Invoke(category, new[] { ParseParameter(type, valueText, goValue) });
+        }
+
+        private static Type GetParameterType(EventParameterType type)
+        {
+            switch (type)
+            {
+                case EventParameterType.None: return null;
+                case EventParameterType.Int: return typeof(int);
+                case EventParameterType.Float: return typeof(float);
+                case EventParameterType.String: return typeof(string);
+                case EventParameterType.Bool: return typeof(bool);
+                case EventParameterType.Vector2: return typeof(Vector2);
+                case EventParameterType.Vector3: return typeof(Vector3);
+                case EventParameterType.GameObject: return typeof(GameObject);
+                default: throw new ArgumentOutOfRangeException(nameof(type), type, "未対応のEvent引数型です。");
+            }
         }
 
         private static object ParseParameter(EventParameterType type, string value, GameObject objectValue)
